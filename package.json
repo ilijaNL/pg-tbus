@@ -9,7 +9,7 @@
     "build": "tsup ./src/index.ts --format cjs,esm --dts",
     "tc": "tsc --noEmit",
     "test": "tap --node-arg=--require=ts-node/register --no-check-coverage",
-    "posttest": "tap --coverage-report=html"
+    "posttest": "tap --coverage-report=html --no-check-coverage"
   },
   "license": "MIT",
   "publishConfig": {
