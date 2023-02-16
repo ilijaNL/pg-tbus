@@ -6,7 +6,7 @@ import { createEventHandler, createTBus, defineEvent, defineTask } from '../src'
 import { resolveWithinSeconds } from '../src/worker';
 import { cleanupSchema } from './utils';
 
-const connectionString = 'postgres://postgres:postgres@localhost:5432/app';
+const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 const schema = 'schema';
 
 test('bus', async ({ teardown, test }) => {

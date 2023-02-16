@@ -6,7 +6,7 @@ import { cleanupSchema, createRandomSchema } from './utils';
 import { migrate } from '../src/migrations';
 import path from 'path';
 
-const connectionString = 'postgres://postgres:postgres@localhost:5432/app';
+const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 
 async function createMigrationDir(schema: string) {
   const migrationPath = path.join(__dirname, '.' + schema);
