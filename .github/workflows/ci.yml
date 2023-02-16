@@ -46,6 +46,9 @@ jobs:
           node-version: 16.x
       - run: yarn install --frozen-lockfile
       - run: yarn tc
-      - run: yarn test
+      - run: yarn test 
         env:
           PG: postgres://postgres:postgres@localhost:5432/ci
+      - uses: romeovs/lcov-reporter-action@v0.2.16
+        with:
+          lcov-file: ./coverage/lcov.info
