@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg14-latest
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
+    ports:
+      - '5432:5432'
+    volumes:
+      # used for initial setup
+      - './db/dumps/:/docker-entrypoint-initdb.d/'
+    restart: on-failure
+    networks:
+      - tbus
+networks:
+  tbus:
+    driver: bridge

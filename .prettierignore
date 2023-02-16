@@ -1,0 +1,6 @@
+node_modules/
+*.yaml
+*.yml
+*.env
+*.generated.*
+.nyc_output
