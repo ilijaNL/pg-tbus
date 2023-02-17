@@ -10,6 +10,22 @@
     "./dist",
     "CHANGELOG.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ilijaNL/pg-tbus.git"
+  },
+  "keywords": [
+    "postgresql",
+    "postgres",
+    "queue",
+    "tasks",
+    "events",
+    "ddd"
+  ],
+  "bugs": {
+    "url": "https://github.com/ilijaNL/pg-tbus/issues"
+  },
+  "homepage": "https://github.com/ilijaNL/pg-tbus#readme",
   "scripts": {
     "build": "tsup ./src/index.ts --format cjs,esm --dts",
     "tc": "tsc --noEmit",
