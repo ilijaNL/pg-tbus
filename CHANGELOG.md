@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.0.5
+
+### Patch Changes
+
+- 8dad120: Optimize latency on same instance
+
 ## 0.0.4
 
 ### Patch Changes
