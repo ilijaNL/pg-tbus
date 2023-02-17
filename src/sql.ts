@@ -1,6 +1,6 @@
 import { JobInsert } from 'pg-boss';
 import fastJSON from 'fast-json-stable-stringify';
-import { Event } from './definitions';
+import { Event, Task } from './definitions';
 import { Pool, PoolClient } from 'pg';
 
 export interface QueryResultRow {
@@ -63,6 +63,20 @@ export async function query<Result extends QueryResultRow>(
 
 export type TaskDTO<T> = { tn: string; data: T };
 export type Job<T = {}> = Omit<JobInsert<TaskDTO<T>>, 'id' | 'onComplete' | 'priority'>;
+
+export const getTaskName = (svc: string, task: string) => `${svc}--${task}`;
+
+export const createTaskDTOFactory =
+  (svc: string) =>
+  (task: Task): Job => {
+    return {
+      data: {
+        data: task.data,
+        tn: task.task_name,
+      },
+      name: getTaskName(svc, task.task_name),
+    };
+  };
 
 export const createPlans = (schema: string) => {
   const sql = createSql(schema);

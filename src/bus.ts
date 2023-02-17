@@ -1,28 +1,26 @@
 import { TSchema } from '@sinclair/typebox';
 import { EventHandler, Event, Task, TaskHandler, TaskDefinition } from './definitions';
-import { query, Job, withTransaction, TaskDTO, createPlans, PGClient } from './sql';
+import { query, Job, withTransaction, TaskDTO, createPlans, PGClient, createTaskDTOFactory, getTaskName } from './sql';
 import { createBaseWorker } from './worker';
 import { Pool, PoolConfig } from 'pg';
 import PgBoss from 'pg-boss';
 import { migrate } from './migrations';
 import path from 'path';
 
-const getTaskName = (svc: string, task: string) => `${svc}--${task}`;
+export type WorkerConfig = {
+  /**
+   * Amount of concurrent tasks that can be executed, default 25
+   */
+  concurrency: number;
+  /**
+   * Interval of pooling the database for new work, default 1500
+   */
+  intervalInMs: number;
+};
 
-const createTaskDTOFactory =
-  (svc: string) =>
-  (task: Task): Job => {
-    return {
-      data: {
-        data: task.data,
-        tn: task.task_name,
-      },
-      name: getTaskName(svc, task.task_name),
-    };
-  };
-
-type TBusConfiguration = {
+export type TBusConfiguration = {
   db: Pool | PoolConfig;
+  worker?: Partial<WorkerConfig>;
   schema: string;
 };
 
@@ -30,7 +28,15 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   // K: task_name, should be unique
   const eventHandlersMap = new Map<string, EventHandler<string, TSchema>>();
   const taskHandlersMap = new Map<string, TaskHandler<any>>();
-  const { schema, db } = configuration;
+  const { schema, db, worker } = configuration;
+
+  const workerConfig = Object.assign<WorkerConfig, Partial<WorkerConfig>>(
+    {
+      concurrency: 25,
+      intervalInMs: 1500,
+    },
+    worker ?? {}
+  );
 
   const taskFactory = createTaskDTOFactory(serviceName);
   const plans = createPlans(configuration.schema);
@@ -103,6 +109,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     { loopInterval: 1000 }
   );
 
+  /**
+   * Register multiple event handlers
+   */
   function registerHandler(...handlers: EventHandler<string, any>[]) {
     handlers.forEach((handler) => {
       if (eventHandlersMap.has(handler.task_name)) {
@@ -114,6 +123,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     });
   }
 
+  /**
+   * Register multiple task definitions
+   */
   function registerTask(...definitions: TaskDefinition<any>[]) {
     definitions.forEach((definition) => {
       if (taskHandlersMap.has(definition.task_name)) {
@@ -124,6 +136,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     });
   }
 
+  /**
+   * Start workers of the pg-tbus
+   */
   async function start() {
     await migrate(pool, schema, path.join(__dirname, '..', 'migrations'));
     await query(pool, plans.ensureServicePointer(serviceName));
@@ -132,7 +147,11 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     const taskListener = getTaskName(serviceName, '*');
     await boss.work<TaskDTO<any>, any>(
       taskListener,
-      { teamSize: 50, newJobCheckIntervalSeconds: 2, teamConcurrency: 20 },
+      {
+        teamSize: workerConfig.concurrency * 2,
+        newJobCheckInterval: workerConfig.intervalInMs,
+        teamConcurrency: workerConfig.concurrency,
+      },
       async function handler({ data: { data, tn } }) {
         const taskHandler = taskHandlersMap.get(tn);
 

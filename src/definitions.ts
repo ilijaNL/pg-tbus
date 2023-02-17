@@ -20,7 +20,7 @@ export interface EventDefinition<Name extends string, Schema extends TSchema> {
 }
 
 /**
- * Define an integration event
+ * Define an integration event.  Task name should be unique for a pg-tbus instance
  */
 export const defineEvent = <TName extends string, T extends TSchema>(
   spec: EventSpec<TName, T>
@@ -68,6 +68,9 @@ export interface TaskHandler<Input> {
 
 export type TaskOptions = {};
 
+/**
+ * Define a standalone task.
+ */
 export const defineTask = <T extends TSchema>(props: {
   task_name: string;
   schema: T;
@@ -107,6 +110,9 @@ export interface EventHandler<TName extends string, T extends TSchema> {
   taskOptions: TaskOptions;
 }
 
+/**
+ * Create an event handler from an event definition. Task name should be unique for a pg-tbus instance
+ */
 export const createEventHandler = <TName extends string, T extends TSchema>(props: {
   task_name: string;
   eventDef: EventDefinition<TName, T>;
