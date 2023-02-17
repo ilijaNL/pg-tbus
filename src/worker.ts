@@ -45,7 +45,7 @@ export function createBaseWorker(run: () => Promise<ShouldContinue>, props: { lo
   }
 
   function notify() {
-    if (loopDelayPromise) {
+    if (loopDelayPromise && running) {
       loopDelayPromise.clear();
     }
   }

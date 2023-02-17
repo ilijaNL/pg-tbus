@@ -30,6 +30,8 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   const taskHandlersMap = new Map<string, TaskHandler<any>>();
   const { schema, db, worker } = configuration;
 
+  let taskWorker: string | null = null;
+
   const workerConfig = Object.assign<WorkerConfig, Partial<WorkerConfig>>(
     {
       concurrency: 25,
@@ -61,7 +63,6 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
           values,
         }),
     },
-    application_name: 'tasks_mananger',
     schema: schema,
     noScheduling: true,
     onComplete: false,
@@ -71,11 +72,11 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   const fanoutWorker = createBaseWorker(
     async () => {
       // start transaction
-      await withTransaction(pool, async (client) => {
+      const newTasks = await withTransaction(pool, async (client) => {
         const events = await query(client, plans.getEvents(serviceName), { name: 'getEvents' });
 
         if (events.length === 0) {
-          return;
+          return false;
         }
 
         const tasks = events
@@ -102,7 +103,13 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
         // update pointer
         const lastPosition = events[events.length - 1]!.position;
         await query(client, plans.updateCursor(serviceName, lastPosition));
+
+        return tasks.length > 0;
       });
+
+      if (newTasks && taskWorker) {
+        boss.notifyWorker(taskWorker);
+      }
 
       return false;
     },
@@ -140,6 +147,10 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
    * Start workers of the pg-tbus
    */
   async function start() {
+    if (taskWorker) {
+      return;
+    }
+
     await migrate(pool, schema, path.join(__dirname, '..', 'migrations'));
 
     const lastCursor = (await query(pool, plans.getLastEvent()))[0];
@@ -147,7 +158,8 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
 
     await boss.start();
     const taskListener = getTaskName(serviceName, '*');
-    await boss.work<TaskDTO<any>, any>(
+
+    taskWorker = await boss.work<TaskDTO<any>, any>(
       taskListener,
       {
         teamSize: workerConfig.concurrency * 2,
@@ -165,6 +177,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
         await taskHandler({ name: tn, input: data });
       }
     );
+
     fanoutWorker.start();
   }
 
@@ -174,12 +187,18 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     start,
     publish: async (events: Event<string, any> | Event<string, any>[], client?: PGClient) => {
       await query(client ?? pool, plans.createEvents(Array.isArray(events) ? events : [events]));
+
+      // optimize this by checking if this instance is affect (has event listeners)
+      fanoutWorker.notify();
     },
     send: async (tasks: Task | Task[], client?: PGClient) => {
       const _tasks = Array.isArray(tasks) ? tasks : [tasks];
       await query(client ?? pool, plans.createTasks(_tasks.map((task) => taskFactory(task))));
+      // optimize this by checking if this instance is affect (has task listeners)
+      fanoutWorker.notify();
     },
     stop: async () => {
+      taskWorker = null;
       await boss.stop({ graceful: true, timeout: 2000 });
       await fanoutWorker.stop();
       if (!remotePool) {

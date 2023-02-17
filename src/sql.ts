@@ -229,11 +229,12 @@ export const createPlans = (schema: string) => {
   };
 };
 
-export async function withTransaction(pool: Pool, handler: (client: PoolClient) => Promise<void>) {
+export async function withTransaction<T>(pool: Pool, handler: (client: PoolClient) => Promise<T>) {
   const client = await pool.connect();
+  let result: T;
   try {
     await client.query('BEGIN');
-    await handler(client);
+    result = await handler(client);
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
@@ -241,4 +242,6 @@ export async function withTransaction(pool: Pool, handler: (client: PoolClient) 
   } finally {
     client.release();
   }
+
+  return result;
 }
