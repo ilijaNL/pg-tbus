@@ -141,7 +141,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
    */
   async function start() {
     await migrate(pool, schema, path.join(__dirname, '..', 'migrations'));
-    await query(pool, plans.ensureServicePointer(serviceName));
+
+    const lastCursor = (await query(pool, plans.getLastEvent()))[0];
+    await query(pool, plans.ensureServicePointer(serviceName, lastCursor?.position ?? 0));
 
     await boss.start();
     const taskListener = getTaskName(serviceName, '*');

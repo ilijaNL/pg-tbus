@@ -16,6 +16,8 @@ CREATE TABLE {{schema}}."events" (
   PRIMARY KEY ("id") 
 );
 
+CREATE INDEX idx_events_pos ON {{schema}}."events" (pos) WHERE pos > 0;
+
 CREATE SEQUENCE {{schema}}.event_order as bigint start 1;
 
 CREATE FUNCTION {{schema}}.proc_set_position()

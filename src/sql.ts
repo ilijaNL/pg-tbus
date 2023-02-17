@@ -156,10 +156,23 @@ export const createPlans = (schema: string) => {
       WHERE svc = ${service_name}`;
   }
 
-  function ensureServicePointer(service_name: string) {
+  function getLastEvent() {
+    return sql<{ id: string; position: number }>`
+      SELECT 
+        id,
+        pos as position
+      FROM {{schema}}.events
+      ORDER BY pos DESC
+      LIMIT 1`;
+  }
+
+  /**
+   *  On new service entry, insert a cursor
+   */
+  function ensureServicePointer(service_name: string, position: number) {
     return sql`
       INSERT INTO {{schema}}.cursors (svc, l_p) 
-      VALUES (${service_name}, 0) 
+      VALUES (${service_name}, ${position}) 
       ON CONFLICT DO NOTHING`;
   }
 
@@ -210,6 +223,7 @@ export const createPlans = (schema: string) => {
     getEvents,
     tableExists,
     createTasks,
+    getLastEvent,
     getMigrations,
     insertMigration,
   };

@@ -7,7 +7,7 @@ import { resolveWithinSeconds } from '../src/worker';
 import { cleanupSchema } from './utils';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
-const schema = 'schema';
+const schema = 'abc';
 
 test('bus', async ({ teardown, test }) => {
   const cleanupPool = new Pool({
@@ -148,4 +148,34 @@ test('bus', async ({ teardown, test }) => {
 
     throws(() => bus.registerHandler(handler1, handler2));
   });
+});
+
+test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
+  const event = defineEvent({
+    event_name: 'test_event',
+    schema: Type.Object({}),
+  });
+
+  const bus = createTBus('serviceA', { db: { connectionString }, schema: schema });
+  await bus.start();
+
+  teardown(() => bus.stop());
+
+  await bus.publish([event.from({}), event.from({})]);
+
+  const bus2 = createTBus('serviceB', { db: { connectionString }, schema: schema });
+  await bus2.start();
+  teardown(() => bus2.stop());
+
+  const pool = new Pool({
+    connectionString: connectionString,
+    max: 1,
+  });
+  teardown(() => pool.end());
+
+  const result = await pool.query<{ l_p: number }>(
+    ` SELECT  l_p  FROM ${schema}.cursors  WHERE svc = 'serviceB' LIMIT 1`
+  );
+
+  equal(result.rows[0]?.l_p, '2');
 });
