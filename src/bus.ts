@@ -1,6 +1,6 @@
 import { TSchema } from '@sinclair/typebox';
 import { EventHandler, Event, Task, TaskHandler, TaskDefinition, TaskTrigger, TaskOptions } from './definitions';
-import { query, withTransaction, PGClient, createSql } from './sql';
+import { query, withTransaction, PGClient, createSql, combineSQL } from './sql';
 import { createBaseWorker } from './worker';
 import { Pool, PoolConfig } from 'pg';
 import PgBoss from 'pg-boss';
@@ -42,7 +42,8 @@ const directTrigger: TaskTrigger = {
 
 const createPlans = (schema: string) => {
   const sql = createSql(schema);
-  function createTasks(jobs: Job[]) {
+
+  function createJobs(jobs: Job[]) {
     return sql<{}>`
       INSERT INTO {{schema}}.job (
         id,
@@ -83,33 +84,20 @@ const createPlans = (schema: string) => {
     `;
   }
 
-  function getEvents(service_name: string, options = { limit: 100 }) {
-    const events = sql<{ id: string; event_name: string; event_data: any; position: number }>`
-    WITH cursor AS (
-      SELECT 
-        l_p 
-      FROM {{schema}}.cursors 
-      WHERE svc = ${service_name}
-      LIMIT 1
-      FOR UPDATE
-    ) SELECT 
-        id, 
-        event_name, 
-        event_data,
-        pos as position
-      FROM {{schema}}.events, cursor
-      WHERE pos > cursor.l_p
-      ORDER BY pos ASC
-      LIMIT ${options.limit}`;
+  function createJobsAndUpdateCursor(props: { jobs: Job[]; service_name: string; last_position: number }) {
+    const res = combineSQL`
+      WITH insert as (
+        ${createJobs(props.jobs)}
+      ) ${sql`
+        UPDATE {{schema}}.cursors 
+        SET l_p = ${props.last_position} 
+        WHERE svc = ${props.service_name}
+      `}
+    `;
 
-    return events;
-  }
+    const cmd = sql(res.sqlFragments, ...res.parameters);
 
-  function updateCursor(service_name: string, last_position: number) {
-    return sql`
-      UPDATE {{schema}}.cursors 
-      SET l_p = ${last_position} 
-      WHERE svc = ${service_name}`;
+    return cmd;
   }
 
   function getLastEvent() {
@@ -148,12 +136,34 @@ const createPlans = (schema: string) => {
     `;
   }
 
+  function getEvents(service_name: string, options = { limit: 100 }) {
+    const events = sql<{ id: string; event_name: string; event_data: any; position: number }>`
+    WITH cursor AS (
+      SELECT 
+        l_p 
+      FROM {{schema}}.cursors 
+      WHERE svc = ${service_name}
+      LIMIT 1
+      FOR UPDATE
+    ) SELECT 
+        id, 
+        event_name, 
+        event_data,
+        pos as position
+      FROM {{schema}}.events, cursor
+      WHERE pos > cursor.l_p
+      ORDER BY pos ASC
+      LIMIT ${options.limit}`;
+
+    return events;
+  }
+
   return {
+    createJobs,
     createEvents,
     ensureServicePointer,
-    updateCursor,
     getEvents,
-    createTasks,
+    createJobsAndUpdateCursor,
     getLastEvent,
   };
 };
@@ -229,6 +239,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   });
 
   // worker which responsible for creating tasks from incoming integrations events
+  // TODO: convert getEvents & createJobsAndUpdateCursor into single CTE for more performance and less locking
   const fanoutWorker = createBaseWorker(
     async () => {
       // start transaction
@@ -260,12 +271,17 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
           })
           .flat();
 
-        // commit tasks
-        await query(client, plans.createTasks(jobs));
-
-        // update pointer
-        const lastPosition = events[events.length - 1]!.position;
-        await query(client, plans.updateCursor(serviceName, lastPosition));
+        await query(
+          client,
+          plans.createJobsAndUpdateCursor({
+            jobs,
+            last_position: events[events.length - 1]!.position,
+            service_name: serviceName,
+          }),
+          {
+            name: 'createJobsAndUpdateCursor',
+          }
+        );
 
         return jobs.length > 0;
       });
@@ -373,7 +389,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     },
     send: async (tasks: Task | Task[], client?: PGClient) => {
       const _tasks = Array.isArray(tasks) ? tasks : [tasks];
-      await query(client ?? pool, plans.createTasks(_tasks.map((task) => toJob(task, directTrigger))));
+      await query(client ?? pool, plans.createJobs(_tasks.map((task) => toJob(task, directTrigger))));
 
       // check if instance is affected by the new tasks
       const hasEffectToCurrentWorker = _tasks.some((t) => taskHandlersMap.has(t.task_name));
