@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.0.6
+
+### Patch Changes
+
+- 64a401c: Task options (retry etc)
+
 ## 0.0.5
 
 ### Patch Changes
