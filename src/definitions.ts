@@ -7,6 +7,12 @@ export interface Event<Name = string, Data = {}> {
   data: Data;
 }
 
+export type TaskTrigger =
+  | {
+      type: 'direct';
+    }
+  | { type: 'event'; e_id: string; e_name: string };
+
 export interface EventSpec<Name extends string, Schema extends TSchema> {
   event_name: Name;
   schema: Schema;
@@ -50,7 +56,7 @@ export const defineEvent = <TName extends string, T extends TSchema>(
 export interface TaskDefinition<T extends TSchema> {
   task_name: string;
   schema: T;
-  options: TaskOptions;
+  options: Partial<TaskOptions>;
   validate: ValidateFunction<Static<T, []>>;
   handler: TaskHandler<Static<T>>;
   from: (input: Static<T>) => Task<Static<T>>;
@@ -59,14 +65,21 @@ export interface TaskDefinition<T extends TSchema> {
 export interface Task<Data = {}> {
   task_name: string;
   data: Data;
-  options: TaskOptions;
+  options: Partial<TaskOptions>;
 }
 
 export interface TaskHandler<Input> {
-  (props: { name: string; input: Input }): Promise<any>;
+  (props: { name: string; input: Input; trigger: TaskTrigger }): Promise<any>;
 }
 
-export type TaskOptions = {};
+export type TaskOptions = {
+  retryLimit: number;
+  retryDelay: number;
+  retryBackoff: boolean;
+  startAfterSeconds: number;
+  expireInSeconds: number;
+  keepInSeconds: number;
+};
 
 /**
  * Define a standalone task.
@@ -75,7 +88,7 @@ export const defineTask = <T extends TSchema>(props: {
   task_name: string;
   schema: T;
   handler: TaskHandler<Static<T>>;
-  options?: TaskOptions;
+  options?: Partial<TaskOptions>;
 }): TaskDefinition<T> => {
   const validateFn = createValidateFn(props.schema);
 
@@ -107,7 +120,7 @@ export interface EventHandler<TName extends string, T extends TSchema> {
   task_name: string;
   def: EventDefinition<TName, T>;
   handler: TaskHandler<Static<T>>;
-  taskOptions: TaskOptions;
+  taskOptions: Partial<TaskOptions>;
 }
 
 /**
@@ -117,7 +130,7 @@ export const createEventHandler = <TName extends string, T extends TSchema>(prop
   task_name: string;
   eventDef: EventDefinition<TName, T>;
   handler: TaskHandler<Static<T>>;
-  options?: TaskOptions;
+  options?: Partial<TaskOptions>;
 }): EventHandler<TName, T> => {
   return {
     task_name: props.task_name,

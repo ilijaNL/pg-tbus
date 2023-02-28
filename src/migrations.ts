@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'fs/promises';
 import * as path from 'path';
 import crypto from 'crypto';
-import { createPlans, query, schemaRE, withTransaction } from './sql';
+import { createSql, query, schemaRE, withTransaction } from './sql';
 import { Pool } from 'pg';
 
 const isValidFile = (fileName: string) => /\.(sql)$/gi.test(fileName);
@@ -117,11 +117,45 @@ This means that the scripts have changed since it was applied.`);
   }
 }
 
+export const createMigrationPlans = (schema: string) => {
+  const sql = createSql(schema);
+
+  function getMigrations() {
+    return sql<{ id: number; name: string; hash: string }>`
+      SELECT * FROM {{schema}}.tbus_migrations ORDER BY id
+    `;
+  }
+
+  function insertMigration(migration: { id: number; hash: string; name: string }) {
+    return sql`
+      INSERT INTO 
+        {{schema}}.tbus_migrations (id, name, hash) 
+      VALUES (${migration.id}, ${migration.name}, ${migration.hash})
+    `;
+  }
+
+  function tableExists(table: string) {
+    return sql<{ exists: boolean }>`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE  table_schema = '{{schema}}'
+        AND    table_name   = ${table}
+      );  
+    `;
+  }
+
+  return {
+    tableExists,
+    getMigrations,
+    insertMigration,
+  };
+};
+
 export async function migrate(pool: Pool, schema: string, directory: string) {
   const allMigrations = await loadMigrationFiles(directory, schema);
   let toApply = [...allMigrations];
   // check if table exists
-  const plans = createPlans(schema);
+  const plans = createMigrationPlans(schema);
 
   await withTransaction(pool, async (client) => {
     // acquire lock
