@@ -1,9 +1,9 @@
 import { Pool } from 'pg';
 import { test } from 'tap';
 import { copy, remove, appendFile, readFile, writeFile } from 'fs-extra';
-import createTBus, { createPlans, query } from '../src';
-import { cleanupSchema, createRandomSchema } from './utils';
-import { migrate } from '../src/migrations';
+import createTBus, { query } from '../src';
+import { cleanupSchema, createRandomSchema } from './test_utils';
+import { createMigrationPlans, migrate } from '../src/migrations';
 import path from 'path';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
@@ -21,7 +21,7 @@ test('happy path', async ({ teardown, equal }) => {
     max: 3,
   });
 
-  const plans = createPlans(schema);
+  const plans = createMigrationPlans(schema);
   const bus = createTBus('test', { db: pool, schema: schema });
   await bus.start();
   const hasMigrations = await query(pool, plans.tableExists('tbus_migrations'));
@@ -71,7 +71,7 @@ test('applies new migration', async ({ teardown, equal }) => {
     await pool.end();
   });
 
-  const allMigrations = await query(pool, createPlans(schema).getMigrations());
+  const allMigrations = await query(pool, createMigrationPlans(schema).getMigrations());
 
   const lastId = allMigrations[allMigrations.length - 1]!.id;
 
@@ -83,7 +83,7 @@ test('applies new migration', async ({ teardown, equal }) => {
 
   await migrate(pool, schema, migrationPath);
 
-  const newMigrations = await query(pool, createPlans(schema).getMigrations());
+  const newMigrations = await query(pool, createMigrationPlans(schema).getMigrations());
 
   equal(allMigrations.length + 1, newMigrations.length);
 
