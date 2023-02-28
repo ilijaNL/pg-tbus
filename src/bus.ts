@@ -101,7 +101,7 @@ const createPlans = (schema: string) => {
   }
 
   function getLastEvent() {
-    return sql<{ id: string; position: number }>`
+    return sql<{ id: string; position: string }>`
       SELECT 
         id,
         pos as position
@@ -137,7 +137,7 @@ const createPlans = (schema: string) => {
   }
 
   function getEvents(service_name: string, options = { limit: 100 }) {
-    const events = sql<{ id: string; event_name: string; event_data: any; position: number }>`
+    const events = sql<{ id: string; event_name: string; event_data: any; position: string }>`
     WITH cursor AS (
       SELECT 
         l_p 
@@ -263,7 +263,10 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
                   task_name: curr.task_name,
                   options: curr.taskOptions,
                 },
-                { type: 'event', e_id: event.id, e_name: event.event_name }
+                {
+                  type: 'event',
+                  e: { id: event.id, name: event.event_name, p: +event.position },
+                }
               );
 
               return [...agg, task];
@@ -275,7 +278,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
           client,
           plans.createJobsAndUpdateCursor({
             jobs,
-            last_position: events[events.length - 1]!.position,
+            last_position: +events[events.length - 1]!.position,
             service_name: serviceName,
           }),
           {
@@ -333,7 +336,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     await migrate(pool, schema, path.join(__dirname, '..', 'migrations'));
 
     const lastCursor = (await query(pool, plans.getLastEvent()))[0];
-    await query(pool, plans.ensureServicePointer(serviceName, lastCursor?.position ?? 0));
+    await query(pool, plans.ensureServicePointer(serviceName, +(lastCursor?.position ?? 0)));
 
     await boss.start();
     const taskListener = getTaskName('*');

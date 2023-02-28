@@ -9,9 +9,31 @@ export interface Event<Name = string, Data = {}> {
 
 export type TaskTrigger =
   | {
+      /**
+       * Directly scheduled task
+       */
       type: 'direct';
     }
-  | { type: 'event'; e_id: string; e_name: string };
+  | {
+      type: 'event';
+      /**
+       * Triggered by event
+       */
+      e: {
+        /**
+         * Event id
+         */
+        id: string;
+        /**
+         * Event name
+         */
+        name: string;
+        /**
+         * Event position
+         */
+        p: number;
+      };
+    };
 
 export interface EventSpec<Name extends string, Schema extends TSchema> {
   event_name: Name;

@@ -50,7 +50,7 @@ export function combineSQL(f: ReadonlyArray<string>, ...parameters: QueryCommand
   for (let i = 0; i < f.length - 1; ++i) {
     sqlFragments[sqlFragments.length - 1] += parameters[i]?.frags[0] ?? '';
     sqlFragments.push(...(parameters[i]?.frags ?? []).slice(1));
-    sqlFragments[sqlFragments.length - 1] += f[i + 1];
+    sqlFragments[sqlFragments.length - 1] += f[i + 1] ?? '';
   }
 
   const values = [...parameters.flatMap((c) => c.values)];
