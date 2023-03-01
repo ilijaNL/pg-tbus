@@ -1,3 +1,5 @@
+import delay from 'delay';
+
 export const debounce = <Args extends any[], F extends (...args: Args) => any>(
   fn: F,
   opts: { ms: number; maxMs: number }
@@ -28,4 +30,21 @@ export const debounce = <Args extends any[], F extends (...args: Args) => any>(
     timeoutId = setTimeout(invoke, opts.ms);
     maxTimeoutId = setTimeout(invoke, Math.max(0, opts.maxMs - (Date.now() - startedTime)));
   };
+};
+
+export const resolveWithinSeconds = async (promise: Promise<any>, seconds: number) => {
+  const timeout = Math.max(1, seconds) * 1000;
+  const timeoutReject = delay.reject(timeout, { value: new Error(`handler execution exceeded ${timeout}ms`) });
+
+  let result;
+
+  try {
+    result = await Promise.race([promise, timeoutReject]);
+  } finally {
+    try {
+      timeoutReject.clear();
+    } catch {}
+  }
+
+  return result;
 };

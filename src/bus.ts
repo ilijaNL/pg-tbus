@@ -1,22 +1,14 @@
 import { TSchema } from '@sinclair/typebox';
-import {
-  EventHandler,
-  Event,
-  Task,
-  TaskHandler,
-  TaskDefinition,
-  TaskTrigger,
-  TaskConfig,
-  defaultTaskConfig,
-} from './definitions';
-import { query, withTransaction, PGClient, createSql, combineSQL } from './sql';
-import { createBaseWorker } from './worker';
+import { EventHandler, Event, Task, TaskHandler, TaskDefinition, TaskTrigger, TaskConfig } from './definitions';
+import { query, PGClient, createSql } from './sql';
 import { Pool, PoolConfig } from 'pg';
 import PgBoss from 'pg-boss';
 import { migrate } from './migrations';
 import path from 'path';
-import fastJSON from 'fast-json-stable-stringify';
 import { debounce } from './utils';
+import { createJobFactory, createMessagePlans, TaskDTO } from './messages';
+import { createFanoutWorker } from './workers/fanout';
+import { createMaintainceWorker } from './workers/maintaince';
 
 export type WorkerConfig = {
   /**
@@ -38,76 +30,12 @@ export type TBusConfiguration = {
 
 type TaskName = string;
 
-type TaskDTO<T> = { tn: string; data: T; trace: TaskTrigger };
-
-type Job<T = object> = {
-  name: string;
-  data: TaskDTO<T>;
-} & TaskConfig;
-
 const directTrigger: TaskTrigger = {
   type: 'direct',
 } as const;
 
 const createPlans = (schema: string) => {
   const sql = createSql(schema);
-
-  function createJobs(jobs: Job[]) {
-    return sql<{}>`
-      INSERT INTO {{schema}}.job (
-        id,
-        name,
-        data,
-        priority,
-        retryLimit,
-        retryDelay,
-        retryBackoff,
-        startAfter,
-        expireIn,
-        keepUntil,
-        on_complete
-      )
-      SELECT
-        gen_random_uuid() as id,
-        name,
-        data,
-        0 as priority,
-        "retryLimit",
-        "retryDelay",
-        "retryBackoff",
-        (now() + ("startAfterSeconds" * interval '1s'))::timestamp with time zone as startAfter,
-        "expireInSeconds" * interval '1s' as expireIn,
-        (now() + ("startAfterSeconds" * interval '1s') + ("keepInSeconds" * interval '1s'))::timestamp with time zone as keepUntil,
-        false as on_complete
-      FROM json_to_recordset(${fastJSON(jobs)}) as x(
-        name text,
-        data jsonb,
-        "retryLimit" integer,
-        "retryDelay" integer,
-        "retryBackoff" boolean,
-        "startAfterSeconds" integer,
-        "expireInSeconds" integer,
-        "keepInSeconds" integer
-      )
-      ON CONFLICT DO NOTHING
-    `;
-  }
-
-  function createJobsAndUpdateCursor(props: { jobs: Job[]; service_name: string; last_position: number }) {
-    const res = combineSQL`
-      WITH insert as (
-        ${createJobs(props.jobs)}
-      ) ${sql`
-        UPDATE {{schema}}.cursors 
-        SET l_p = ${props.last_position} 
-        WHERE svc = ${props.service_name}
-      `}
-    `;
-
-    const cmd = sql(res.sqlFragments, ...res.parameters);
-
-    return cmd;
-  }
 
   function getLastEvent() {
     return sql<{ id: string; position: string }>`
@@ -131,56 +59,8 @@ const createPlans = (schema: string) => {
       ON CONFLICT DO NOTHING`;
   }
 
-  function createEvents(events: Event[]) {
-    return sql`
-      INSERT INTO {{schema}}.events (
-        event_name,
-        event_data
-      ) 
-      SELECT
-        event_name,
-        data as event_data
-      FROM json_to_recordset(${fastJSON(events)}) as x(
-        event_name text,
-        data jsonb
-      )
-    `;
-  }
-
-  function getCursorAndLock(service_name: string) {
-    return sql<{ cursor: string }>`
-      SELECT 
-        l_p as cursor
-      FROM {{schema}}.cursors 
-      WHERE svc = ${service_name}
-      LIMIT 1
-      FOR UPDATE
-      SKIP LOCKED
-    `;
-  }
-
-  function getEvents(offset: number, options = { limit: 100 }) {
-    const events = sql<{ id: string; event_name: string; event_data: any; position: string }>`
-      SELECT 
-        id, 
-        event_name, 
-        event_data,
-        pos as position
-      FROM {{schema}}.events
-      WHERE pos > ${offset}
-      ORDER BY pos ASC
-      LIMIT ${options.limit}`;
-
-    return events;
-  }
-
   return {
-    createJobs,
-    createEvents,
     ensureServicePointer,
-    getCursorAndLock,
-    getEvents,
-    createJobsAndUpdateCursor,
     getLastEvent,
   };
 };
@@ -203,25 +83,14 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
 
   const getTaskName = (task: string) => `${serviceName}--${task}`;
 
-  const toJob = (task: Task, trigger: TaskTrigger): Job => {
-    const config: TaskConfig = {
-      ...defaultTaskConfig,
-      ...configuration.taskConfig,
-      ...task.config,
-    };
+  const toJob = createJobFactory({
+    getTaskName: getTaskName,
+    taskConfig: configuration.taskConfig ?? {},
+  });
 
-    return {
-      data: {
-        data: task.data,
-        tn: task.task_name,
-        trace: trigger,
-      },
-      name: getTaskName(task.task_name),
-      ...config,
-    };
-  };
+  const jobPlans = createMessagePlans(schema);
+  const plans = createPlans(schema);
 
-  const plans = createPlans(configuration.schema);
   let pool: Pool;
 
   const remotePool = 'query' in db;
@@ -249,71 +118,20 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   });
 
   // worker which responsible for creating tasks from incoming integrations events
-  // TODO: convert getEvents & createJobsAndUpdateCursor into single CTE for more performance and less locking
-  const fanoutWorker = createBaseWorker(
-    async () => {
-      // start transaction
-      const newTasks = await withTransaction(pool, async (client) => {
-        const cursor = await query(client, plans.getCursorAndLock(serviceName), { name: 'getCursor' }).then(
-          (d) => d[0]?.cursor
-        );
-        if (!cursor) {
-          return false;
-        }
-
-        const events = await query(client, plans.getEvents(+cursor, { limit: 100 }), { name: 'getEvents' });
-
-        if (events.length === 0) {
-          return false;
-        }
-
-        const jobs = events
-          .map((event) => {
-            return Array.from(eventHandlersMap.values()).reduce((agg, curr) => {
-              if (curr.def.event_name !== event.event_name) {
-                return agg;
-              }
-
-              const task: Job = toJob(
-                {
-                  data: event.event_data,
-                  task_name: curr.task_name,
-                  config: curr.config,
-                },
-                {
-                  type: 'event',
-                  e: { id: event.id, name: event.event_name, p: +event.position },
-                }
-              );
-
-              return [...agg, task];
-            }, [] as Job[]);
-          })
-          .flat();
-
-        await query(
-          client,
-          plans.createJobsAndUpdateCursor({
-            jobs,
-            last_position: +events[events.length - 1]!.position,
-            service_name: serviceName,
-          }),
-          {
-            name: 'createJobsAndUpdateCursor',
-          }
-        );
-
-        return jobs.length > 0;
-      });
-
-      if (newTasks && taskWorker) {
+  const fanoutWorker = createFanoutWorker({
+    schema: configuration.schema,
+    serviceName: serviceName,
+    pool,
+    getEventHandlers: () => Array.from(eventHandlersMap.values()),
+    jobFactory: toJob,
+    onNewTasks() {
+      if (taskWorker) {
         boss.notifyWorker(taskWorker);
       }
-
-      return false;
     },
-    { loopInterval: 1000 }
-  );
+  });
+
+  const maintainceWorker = createMaintainceWorker({ client: pool, retentionInDays: 30, schema: schema });
 
   /**
    * Register multiple event handlers
@@ -378,6 +196,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     );
 
     fanoutWorker.start();
+    maintainceWorker.start();
   }
 
   const notifyFanout = debounce(() => fanoutWorker.notify(), { ms: 75, maxMs: 300 });
@@ -396,7 +215,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     start,
     publish: async (events: Event<string, any> | Event<string, any>[], client?: PGClient) => {
       const _events = Array.isArray(events) ? events : [events];
-      await query(client ?? pool, plans.createEvents(_events));
+      await query(client ?? pool, jobPlans.createEvents(_events));
 
       // check if instance is affected by the published events
       const allRegisteredEvents = Array.from(eventHandlersMap.values());
@@ -409,7 +228,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     },
     send: async (tasks: Task | Task[], client?: PGClient) => {
       const _tasks = Array.isArray(tasks) ? tasks : [tasks];
-      await query(client ?? pool, plans.createJobs(_tasks.map((task) => toJob(task, directTrigger))));
+      await query(client ?? pool, jobPlans.createJobs(_tasks.map((task) => toJob(task, directTrigger))));
 
       // check if instance is affected by the new tasks
       const hasEffectToCurrentWorker = _tasks.some((t) => taskHandlersMap.has(t.task_name));
@@ -420,7 +239,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     stop: async () => {
       taskWorker = null;
       await boss.stop({ graceful: true, timeout: 2000 });
-      await fanoutWorker.stop();
+
+      await Promise.all([fanoutWorker.stop(), maintainceWorker.stop()]);
+
       if (!remotePool) {
         await pool.end();
       }

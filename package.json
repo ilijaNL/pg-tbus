@@ -30,7 +30,7 @@
     "build": "tsup ./src/index.ts --format cjs,esm --dts",
     "tc": "tsc --noEmit",
     "ci:publish": "yarn build && changeset publish",
-    "test": "tap --ts --no-check-coverage --no-timeout tests/*.test.ts",
+    "test": "tap --ts --no-check-coverage  tests/*.test.ts",
     "posttest": "tap --coverage-report=html --no-check-coverage"
   },
   "license": "MIT",

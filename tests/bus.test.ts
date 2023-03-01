@@ -3,7 +3,7 @@ import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
 import tap from 'tap';
 import { createEventHandler, createTBus, defineEvent, defineTask } from '../src';
-import { resolveWithinSeconds } from '../src/worker';
+import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
@@ -258,16 +258,16 @@ tap.test('bus', async (t) => {
     const bus = createTBus('serviceA', { db: { connectionString }, schema: schema });
     await bus.start();
 
-    teardown(async () => {
-      await bus.stop();
-      await cleanupSchema(sqlPool, schema);
-    });
-
     await bus.publish([event.from({}), event.from({})]);
 
     const bus2 = createTBus('serviceB', { db: { connectionString }, schema: schema });
     await bus2.start();
-    teardown(() => bus2.stop());
+
+    teardown(async () => {
+      await bus.stop();
+      await bus2.stop();
+      await cleanupSchema(sqlPool, schema);
+    });
 
     const result = await sqlPool.query<{ l_p: string }>(
       `SELECT l_p FROM ${schema}.cursors WHERE svc = 'serviceB' LIMIT 1`

@@ -6,24 +6,7 @@ export type Worker = {
   stop: () => Promise<void>;
 };
 
-export const resolveWithinSeconds = async (promise: Promise<any>, seconds: number) => {
-  const timeout = Math.max(1, seconds) * 1000;
-  const timeoutReject = delay.reject(timeout, { value: new Error(`handler execution exceeded ${timeout}ms`) });
-
-  let result;
-
-  try {
-    result = await Promise.race([promise, timeoutReject]);
-  } finally {
-    try {
-      timeoutReject.clear();
-    } catch {}
-  }
-
-  return result;
-};
-
-type ShouldContinue = boolean;
+type ShouldContinue = boolean | void | undefined;
 
 export function createBaseWorker(run: () => Promise<ShouldContinue>, props: { loopInterval: number }): Worker {
   const { loopInterval } = props;
@@ -59,7 +42,14 @@ export function createBaseWorker(run: () => Promise<ShouldContinue>, props: { lo
   }
 
   async function stop() {
+    if (!running) {
+      return;
+    }
+
     running = false;
+    // fix for clear bug
+    setImmediate(() => loopDelayPromise?.clear());
+
     await loopPromise;
   }
 
