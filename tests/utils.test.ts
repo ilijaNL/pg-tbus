@@ -1,8 +1,8 @@
-import { test } from 'tap';
+import tap from 'tap';
 import { debounce } from '../src/utils';
 
-test('debounce', async ({ test }) => {
-  test('debounces', async ({ equal }) => {
+tap.test('debounce', async (t) => {
+  t.test('debounces', async ({ equal }) => {
     let called = 0;
     const fn = () => ++called;
 
@@ -22,7 +22,7 @@ test('debounce', async ({ test }) => {
     equal(called, 2);
   });
 
-  test('maxWait', async ({ equal }) => {
+  t.test('maxWait', async ({ equal }) => {
     let called = 0;
     const fn = () => {
       ++called;
@@ -61,7 +61,7 @@ test('debounce', async ({ test }) => {
     equal(called, 3);
   });
 
-  test('calls with latest', async ({ equal, plan }) => {
+  t.test('calls with latest', async ({ equal, plan }) => {
     plan(1);
     const fn = (input: string) => {
       equal(input, 'last');
@@ -79,7 +79,7 @@ test('debounce', async ({ test }) => {
     await new Promise((resolve) => setTimeout(resolve, 70));
   });
 
-  test('maxwait with latest', async ({ equal, plan }) => {
+  t.test('maxwait with latest', async ({ equal, plan }) => {
     plan(1);
     const fn = (input: string) => {
       equal(input, 'second');

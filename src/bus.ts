@@ -1,5 +1,14 @@
 import { TSchema } from '@sinclair/typebox';
-import { EventHandler, Event, Task, TaskHandler, TaskDefinition, TaskTrigger, TaskOptions } from './definitions';
+import {
+  EventHandler,
+  Event,
+  Task,
+  TaskHandler,
+  TaskDefinition,
+  TaskTrigger,
+  TaskConfig,
+  defaultTaskConfig,
+} from './definitions';
 import { query, withTransaction, PGClient, createSql, combineSQL } from './sql';
 import { createBaseWorker } from './worker';
 import { Pool, PoolConfig } from 'pg';
@@ -24,7 +33,7 @@ export type TBusConfiguration = {
   db: Pool | PoolConfig;
   worker?: Partial<WorkerConfig>;
   schema: string;
-  tasks?: Partial<TaskOptions>;
+  taskConfig?: Partial<TaskConfig>;
 };
 
 type TaskName = string;
@@ -34,7 +43,7 @@ type TaskDTO<T> = { tn: string; data: T; trace: TaskTrigger };
 type Job<T = object> = {
   name: string;
   data: TaskDTO<T>;
-} & TaskOptions;
+} & TaskConfig;
 
 const directTrigger: TaskTrigger = {
   type: 'direct',
@@ -106,6 +115,8 @@ const createPlans = (schema: string) => {
         id,
         pos as position
       FROM {{schema}}.events
+      -- for index
+      WHERE pos > 0
       ORDER BY pos DESC
       LIMIT 1`;
   }
@@ -136,22 +147,27 @@ const createPlans = (schema: string) => {
     `;
   }
 
-  function getEvents(service_name: string, options = { limit: 100 }) {
-    const events = sql<{ id: string; event_name: string; event_data: any; position: string }>`
-    WITH cursor AS (
+  function getCursorAndLock(service_name: string) {
+    return sql<{ cursor: string }>`
       SELECT 
-        l_p 
+        l_p as cursor
       FROM {{schema}}.cursors 
       WHERE svc = ${service_name}
       LIMIT 1
       FOR UPDATE
-    ) SELECT 
+      SKIP LOCKED
+    `;
+  }
+
+  function getEvents(offset: number, options = { limit: 100 }) {
+    const events = sql<{ id: string; event_name: string; event_data: any; position: string }>`
+      SELECT 
         id, 
         event_name, 
         event_data,
         pos as position
-      FROM {{schema}}.events, cursor
-      WHERE pos > cursor.l_p
+      FROM {{schema}}.events
+      WHERE pos > ${offset}
       ORDER BY pos ASC
       LIMIT ${options.limit}`;
 
@@ -162,6 +178,7 @@ const createPlans = (schema: string) => {
     createJobs,
     createEvents,
     ensureServicePointer,
+    getCursorAndLock,
     getEvents,
     createJobsAndUpdateCursor,
     getLastEvent,
@@ -187,18 +204,11 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   const getTaskName = (task: string) => `${serviceName}--${task}`;
 
   const toJob = (task: Task, trigger: TaskTrigger): Job => {
-    const options = Object.assign<TaskOptions, Partial<TaskOptions>, Partial<TaskOptions>>(
-      {
-        retryBackoff: false,
-        retryDelay: 3,
-        retryLimit: 3,
-        startAfterSeconds: 0,
-        expireInSeconds: 60 * 5, // 5 minutes
-        keepInSeconds: 7 * 24 * 60 * 60,
-      },
-      configuration.tasks ?? {},
-      task.options
-    );
+    const config: TaskConfig = {
+      ...defaultTaskConfig,
+      ...configuration.taskConfig,
+      ...task.config,
+    };
 
     return {
       data: {
@@ -207,7 +217,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
         trace: trigger,
       },
       name: getTaskName(task.task_name),
-      ...options,
+      ...config,
     };
   };
 
@@ -244,7 +254,14 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     async () => {
       // start transaction
       const newTasks = await withTransaction(pool, async (client) => {
-        const events = await query(client, plans.getEvents(serviceName), { name: 'getEvents' });
+        const cursor = await query(client, plans.getCursorAndLock(serviceName), { name: 'getCursor' }).then(
+          (d) => d[0]?.cursor
+        );
+        if (!cursor) {
+          return false;
+        }
+
+        const events = await query(client, plans.getEvents(+cursor, { limit: 100 }), { name: 'getEvents' });
 
         if (events.length === 0) {
           return false;
@@ -261,7 +278,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
                 {
                   data: event.event_data,
                   task_name: curr.task_name,
-                  options: curr.taskOptions,
+                  config: curr.config,
                 },
                 {
                   type: 'event',

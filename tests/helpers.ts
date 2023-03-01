@@ -5,6 +5,6 @@ export async function cleanupSchema(pool: Pool, schema: string) {
 }
 
 export function createRandomSchema() {
-  const schema = 'schema_' + (Math.random() + 1).toString(36).substring(5);
+  const schema = 's_' + (Math.random() + 1).toString(36).substring(6);
   return schema;
 }

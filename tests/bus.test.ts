@@ -1,28 +1,28 @@
 import { Type } from '@sinclair/typebox';
 import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
-import t from 'tap';
+import tap from 'tap';
 import { createEventHandler, createTBus, defineEvent, defineTask } from '../src';
 import { resolveWithinSeconds } from '../src/worker';
-import { cleanupSchema, createRandomSchema } from './test_utils';
+import { cleanupSchema, createRandomSchema } from './helpers';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 
-t.jobs = 5;
+tap.jobs = 5;
 
-t.test('bus', async ({ teardown, test }) => {
+tap.test('bus', async (t) => {
   const schema = 'abc';
 
   const sqlPool = new Pool({
     connectionString: connectionString,
   });
 
-  teardown(async () => {
+  t.teardown(async () => {
     await cleanupSchema(sqlPool, schema);
     await sqlPool.end();
   });
 
-  test('smoke test', async ({ teardown, pass }) => {
+  t.test('smoke test', async ({ teardown, pass }) => {
     const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
 
     await bus.start();
@@ -31,7 +31,7 @@ t.test('bus', async ({ teardown, test }) => {
     pass('passes');
   });
 
-  test('emit task', async ({ teardown, equal, plan }) => {
+  t.test('emit task', async ({ teardown, equal, plan }) => {
     plan(2);
     const ee = new EventEmitter();
     const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
@@ -56,7 +56,7 @@ t.test('bus', async ({ teardown, test }) => {
     await once(ee, 'handled');
   });
 
-  test('emit event', async ({ teardown, equal, plan }) => {
+  t.test('emit event', async ({ teardown, equal, plan }) => {
     plan(6);
 
     const ee = new EventEmitter();
@@ -117,7 +117,7 @@ t.test('bus', async ({ teardown, test }) => {
     await resolveWithinSeconds(Promise.all([once(ee, 'handled1'), once(ee, 'handled2'), once(ee, 'handled3')]), 3);
   });
 
-  test('throws when same task is registered', async ({ throws }) => {
+  t.test('throws when same task is registered', async ({ throws }) => {
     const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
     const taskDef1 = defineTask({
       task_name: 'task_abc',
@@ -133,7 +133,7 @@ t.test('bus', async ({ teardown, test }) => {
     throws(() => bus.registerTask(taskDef1, taskDef2));
   });
 
-  test('throws when same eventHandler is registered', async ({ throws }) => {
+  t.test('throws when same eventHandler is registered', async ({ throws }) => {
     const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
 
     const event = defineEvent({
@@ -156,12 +156,12 @@ t.test('bus', async ({ teardown, test }) => {
     throws(() => bus.registerHandler(handler1, handler2));
   });
 
-  test('task options', async ({ teardown, equal }) => {
+  t.test('task options', async ({ teardown, equal }) => {
     const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
     const taskDef = defineTask({
       task_name: 'options_task',
       schema: Type.Object({ works: Type.String() }),
-      options: {
+      config: {
         expireInSeconds: 5,
         retryBackoff: true,
         retryDelay: 45,
@@ -195,7 +195,60 @@ t.test('bus', async ({ teardown, test }) => {
     equal(new Date(result.keepuntil).getTime() - new Date(result.createdon).getTime(), startAfterInMs + 6000 * 1000);
   });
 
-  test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
+  t.test('event handler options', async ({ teardown, equal }) => {
+    const bus = createTBus('sss', { db: { connectionString: connectionString }, schema: schema });
+
+    const event = defineEvent({
+      event_name: 'test',
+      schema: Type.Object({}),
+    });
+
+    const config = {
+      expireInSeconds: 3,
+      retryBackoff: true,
+      retryDelay: 33,
+      retryLimit: 5,
+      startAfterSeconds: 2,
+      keepInSeconds: 20,
+    };
+
+    const handler = createEventHandler({
+      eventDef: event,
+      task_name: 'handler_task_config',
+      handler: async () => {},
+      config: config,
+    });
+
+    bus.registerHandler(handler);
+
+    await bus.start();
+
+    teardown(() => bus.stop());
+
+    await bus.publish(event.from({}));
+
+    // can be short since it notifies internally
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const taskName = `sss--handler_task_config`;
+
+    const result = await sqlPool
+      .query(`SELECT * FROM ${schema}.job WHERE name = '${taskName}' LIMIT 1`)
+      .then((r) => r.rows[0]);
+
+    const startAfterInMs = config.startAfterSeconds * 1000;
+
+    equal(result.retrylimit, config.retryLimit);
+    equal(result.retrydelay, config.retryDelay);
+    equal(result.retrybackoff, config.retryBackoff);
+    equal(new Date(result.startafter).getTime() - new Date(result.createdon).getTime(), startAfterInMs);
+    equal(
+      new Date(result.keepuntil).getTime() - new Date(result.createdon).getTime(),
+      startAfterInMs + config.keepInSeconds * 1000
+    );
+  });
+
+  t.test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
     const schema = createRandomSchema();
     const event = defineEvent({
       event_name: 'test_event',
@@ -223,7 +276,7 @@ t.test('bus', async ({ teardown, test }) => {
     equal(result.rows[0]?.l_p, '2');
   });
 
-  test('cursor', async ({ teardown, equal, plan }) => {
+  t.test('cursor', async ({ teardown, equal, plan }) => {
     plan(4);
     const ee = new EventEmitter();
     const schema = createRandomSchema();
@@ -272,7 +325,7 @@ t.test('bus', async ({ teardown, test }) => {
   });
 });
 
-t.test('concurrency', async ({ teardown, plan, equal }) => {
+tap.test('concurrency', async ({ teardown, plan, equal }) => {
   plan(1);
 
   const schema = createRandomSchema();

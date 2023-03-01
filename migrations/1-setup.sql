@@ -26,14 +26,12 @@ CREATE FUNCTION {{schema}}.proc_set_position()
 AS
 $$
 BEGIN
-  -- this can be improved by partion locking
     PERFORM pg_advisory_xact_lock(1723683380);
     update {{schema}}."events" set pos = NEXTVAL('{{schema}}.event_order') where id = new.id;
     RETURN NULL;
 END;
 $$;
 
--- it should break
 CREATE CONSTRAINT TRIGGER set_commit_order
     AFTER INSERT ON {{schema}}."events"
     DEFERRABLE INITIALLY DEFERRED

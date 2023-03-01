@@ -78,7 +78,7 @@ export const defineEvent = <TName extends string, T extends TSchema>(
 export interface TaskDefinition<T extends TSchema> {
   task_name: string;
   schema: T;
-  options: Partial<TaskOptions>;
+  config: Partial<TaskConfig>;
   validate: ValidateFunction<Static<T, []>>;
   handler: TaskHandler<Static<T>>;
   from: (input: Static<T>) => Task<Static<T>>;
@@ -87,19 +87,46 @@ export interface TaskDefinition<T extends TSchema> {
 export interface Task<Data = {}> {
   task_name: string;
   data: Data;
-  options: Partial<TaskOptions>;
+  config: Partial<TaskConfig>;
 }
 
 export interface TaskHandler<Input> {
   (props: { name: string; input: Input; trigger: TaskTrigger }): Promise<any>;
 }
 
-export type TaskOptions = {
+export const defaultTaskConfig: TaskConfig = {
+  retryBackoff: false,
+  retryDelay: 5,
+  retryLimit: 3,
+  startAfterSeconds: 0,
+  expireInSeconds: 60 * 5, // 5 minutes
+  keepInSeconds: 7 * 24 * 60 * 60,
+};
+
+export type TaskConfig = {
+  /**
+   * Amount of times the task is retried, default 3
+   */
   retryLimit: number;
+  /**
+   * Delay between retries of failed jobs, in seconds. Default 5
+   */
   retryDelay: number;
+  /**
+   * Expentional retrybackoff, default false
+   */
   retryBackoff: boolean;
+  /**
+   * Start after n seconds, default 0
+   */
   startAfterSeconds: number;
+  /**
+   * How many seconds a job may be in active state before it is failed because of expiration. Default 60 * 5 (5minutes)
+   */
   expireInSeconds: number;
+  /**
+   * How long job is hold in the jobs table before it is archieved. Default 7 * 24 * 60 * 60 (7 days)
+   */
   keepInSeconds: number;
 };
 
@@ -110,7 +137,7 @@ export const defineTask = <T extends TSchema>(props: {
   task_name: string;
   schema: T;
   handler: TaskHandler<Static<T>>;
-  options?: Partial<TaskOptions>;
+  config?: Partial<TaskConfig>;
 }): TaskDefinition<T> => {
   const validateFn = createValidateFn(props.schema);
 
@@ -123,7 +150,7 @@ export const defineTask = <T extends TSchema>(props: {
     return {
       data: input,
       task_name: props.task_name,
-      options: props.options ?? {},
+      config: props.config ?? {},
     };
   }
 
@@ -134,7 +161,7 @@ export const defineTask = <T extends TSchema>(props: {
     handler: props.handler,
     from,
     // specifiy some defaults
-    options: props.options ?? {},
+    config: props.config ?? {},
   };
 };
 
@@ -142,7 +169,7 @@ export interface EventHandler<TName extends string, T extends TSchema> {
   task_name: string;
   def: EventDefinition<TName, T>;
   handler: TaskHandler<Static<T>>;
-  taskOptions: Partial<TaskOptions>;
+  config: Partial<TaskConfig>;
 }
 
 /**
@@ -152,12 +179,12 @@ export const createEventHandler = <TName extends string, T extends TSchema>(prop
   task_name: string;
   eventDef: EventDefinition<TName, T>;
   handler: TaskHandler<Static<T>>;
-  options?: Partial<TaskOptions>;
+  config?: Partial<TaskConfig>;
 }): EventHandler<TName, T> => {
   return {
     task_name: props.task_name,
     def: props.eventDef,
     handler: props.handler,
-    taskOptions: props.options ?? {},
+    config: props.config ?? {},
   };
 };

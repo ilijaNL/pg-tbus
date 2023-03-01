@@ -1,8 +1,8 @@
 import { Pool } from 'pg';
-import { test } from 'tap';
+import tap from 'tap';
 import { copy, remove, appendFile, readFile, writeFile } from 'fs-extra';
 import createTBus, { query } from '../src';
-import { cleanupSchema, createRandomSchema } from './test_utils';
+import { cleanupSchema, createRandomSchema } from './helpers';
 import { createMigrationPlans, migrate } from '../src/migrations';
 import path from 'path';
 
@@ -14,7 +14,7 @@ async function createMigrationDir(schema: string) {
   return migrationPath;
 }
 
-test('happy path', async ({ teardown, equal }) => {
+tap.test('happy path', async ({ teardown, equal }) => {
   const schema = createRandomSchema();
   const pool = new Pool({
     connectionString: connectionString,
@@ -35,7 +35,7 @@ test('happy path', async ({ teardown, equal }) => {
   });
 });
 
-test('concurrently startup', async ({ teardown }) => {
+tap.test('concurrently startup', async ({ teardown }) => {
   const schema = createRandomSchema();
   const bus = createTBus('test', { db: { connectionString }, schema: schema });
   const bus2 = createTBus('test', { db: { connectionString }, schema: schema });
@@ -54,7 +54,7 @@ test('concurrently startup', async ({ teardown }) => {
   });
 });
 
-test('applies new migration', async ({ teardown, equal }) => {
+tap.test('applies new migration', async ({ teardown, equal }) => {
   const schema = createRandomSchema();
 
   const pool = new Pool({
@@ -93,7 +93,7 @@ test('applies new migration', async ({ teardown, equal }) => {
   equal(lastAppliedMig.id, lastId + 1);
 });
 
-test('throws when not valid name', async ({ teardown, rejects }) => {
+tap.test('throws when not valid name', async ({ teardown, rejects }) => {
   const schema = createRandomSchema();
 
   const pool = new Pool({
@@ -119,7 +119,7 @@ test('throws when not valid name', async ({ teardown, rejects }) => {
   rejects(migrate(pool, schema, migrationPath));
 });
 
-test('throws when migration is changed', async ({ teardown, equal, rejects }) => {
+tap.test('throws when migration is changed', async ({ teardown, equal, rejects }) => {
   const schema = createRandomSchema();
 
   const pool = new Pool({
