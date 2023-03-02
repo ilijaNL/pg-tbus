@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.0.8
+
+### Patch Changes
+
+- Dynamic handler config
+
 ## 0.0.7
 
 ### Patch Changes

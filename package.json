@@ -1,7 +1,7 @@
 {
   "name": "pg-tbus",
   "author": "IlijaNL",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "types": "dist/index.d.ts",
   "module": "dist/index.mjs",
   "main": "dist/index.js",
