@@ -36,7 +36,14 @@ export type TaskTrigger =
     };
 
 export interface EventSpec<Name extends string, Schema extends TSchema> {
+  /**
+   * Event name.
+   * It is wisely to prefix with servicename abbr
+   */
   event_name: Name;
+  /**
+   * Typebox schema of the payload
+   */
   schema: Schema;
 }
 
@@ -81,7 +88,7 @@ export interface TaskDefinition<T extends TSchema> {
   config: Partial<TaskConfig>;
   validate: ValidateFunction<Static<T, []>>;
   handler: TaskHandler<Static<T>>;
-  from: (input: Static<T>) => Task<Static<T>>;
+  from: (input: Static<T>, config?: Partial<TaskConfig>) => Task<Static<T>>;
 }
 
 export interface Task<Data = {}> {
@@ -134,14 +141,26 @@ export type TaskConfig = {
  * Define a standalone task.
  */
 export const defineTask = <T extends TSchema>(props: {
+  /**
+   * Task name
+   */
   task_name: string;
+  /**
+   * Task payload schema
+   */
   schema: T;
+  /**
+   * Task handler
+   */
   handler: TaskHandler<Static<T>>;
+  /**
+   * Task configuration
+   */
   config?: Partial<TaskConfig>;
 }): TaskDefinition<T> => {
   const validateFn = createValidateFn(props.schema);
 
-  function from(input: Static<T>): Task<Static<T>> {
+  const from: TaskDefinition<T>['from'] = function from(input, config) {
     if (!validateFn(input)) {
       throw new Error(
         `invalid input for task ${props.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
@@ -150,9 +169,9 @@ export const defineTask = <T extends TSchema>(props: {
     return {
       data: input,
       task_name: props.task_name,
-      config: props.config ?? {},
+      config: { ...config, ...props.config },
     };
-  }
+  };
 
   return {
     schema: props.schema,
@@ -169,22 +188,34 @@ export interface EventHandler<TName extends string, T extends TSchema> {
   task_name: string;
   def: EventDefinition<TName, T>;
   handler: TaskHandler<Static<T>>;
-  config: Partial<TaskConfig>;
+  config: Partial<TaskConfig> | ((input: Static<T>) => Partial<TaskConfig>);
 }
 
 /**
  * Create an event handler from an event definition. Task name should be unique for a pg-tbus instance
  */
 export const createEventHandler = <TName extends string, T extends TSchema>(props: {
+  /**
+   * Task queue name. Should be unique per pg-tbus instance
+   */
   task_name: string;
+  /**
+   * Event definitions
+   */
   eventDef: EventDefinition<TName, T>;
+  /**
+   * Event handler
+   */
   handler: TaskHandler<Static<T>>;
-  config?: Partial<TaskConfig>;
+  /**
+   * Event handler configuration. Can be static or a function
+   */
+  config?: Partial<TaskConfig> | ((input: Static<T>) => Partial<TaskConfig>);
 }): EventHandler<TName, T> => {
   return {
     task_name: props.task_name,
     def: props.eventDef,
     handler: props.handler,
-    config: props.config ?? {},
+    config: typeof props.config === 'function' ? props.config : { ...props.config },
   };
 };

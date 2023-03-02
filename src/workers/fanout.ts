@@ -4,6 +4,8 @@ import { createBaseWorker } from './base';
 import { EventHandler } from '../definitions';
 import { createMessagePlans, Job, JobFactory } from '../messages';
 
+type _Event = { id: string; event_name: string; event_data: any; position: string };
+
 const createPlans = (schema: string) => {
   const sql = createSql(schema);
   const taskSql = createMessagePlans(schema);
@@ -37,7 +39,7 @@ const createPlans = (schema: string) => {
   }
 
   function getEvents(offset: number, options: { limit: number }) {
-    const events = sql<{ id: string; event_name: string; event_data: any; position: string }>`
+    const events = sql<_Event>`
       SELECT 
         id, 
         event_name, 
@@ -56,6 +58,30 @@ const createPlans = (schema: string) => {
     getEvents,
     createJobsAndUpdateCursor,
   };
+};
+
+const createEventToJobs = (eventHandlers: EventHandler<string, any>[], jobFactory: JobFactory) => (event: _Event) => {
+  return eventHandlers.reduce((agg, curr) => {
+    if (curr.def.event_name !== event.event_name) {
+      return agg;
+    }
+
+    const config = typeof curr.config === 'function' ? curr.config(event.event_data) : curr.config;
+
+    const task: Job = jobFactory(
+      {
+        data: event.event_data,
+        task_name: curr.task_name,
+        config: config,
+      },
+      {
+        type: 'event',
+        e: { id: event.id, name: event.event_name, p: +event.position },
+      }
+    );
+
+    return [...agg, task];
+  }, [] as Job[]);
 };
 
 export const createFanoutWorker = (props: {
@@ -87,35 +113,16 @@ export const createFanoutWorker = (props: {
           return false;
         }
 
-        const jobs = events
-          .map((event) => {
-            return props.getEventHandlers().reduce((agg, curr) => {
-              if (curr.def.event_name !== event.event_name) {
-                return agg;
-              }
+        const newCursor = +events[events.length - 1]!.position;
 
-              const task: Job = props.jobFactory(
-                {
-                  data: event.event_data,
-                  task_name: curr.task_name,
-                  config: curr.config,
-                },
-                {
-                  type: 'event',
-                  e: { id: event.id, name: event.event_name, p: +event.position },
-                }
-              );
-
-              return [...agg, task];
-            }, [] as Job[]);
-          })
-          .flat();
+        const eventToJobs = createEventToJobs(props.getEventHandlers(), props.jobFactory);
+        const jobs = events.map(eventToJobs).flat();
 
         await query(
           client,
           plans.createJobsAndUpdateCursor({
             jobs,
-            last_position: +events[events.length - 1]!.position,
+            last_position: newCursor,
             service_name: props.serviceName,
           }),
           {

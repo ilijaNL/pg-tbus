@@ -1,14 +1,6 @@
-import { TSchema, Type, Static } from '@sinclair/typebox';
+import { TSchema, Static } from '@sinclair/typebox';
 import addFormats from 'ajv-formats';
 import Ajv from 'ajv/dist/2019';
-
-export const Nullable = <T extends TSchema>(type: T) => Type.Union([type, Type.Null()]);
-export const Uuid = Type.String({ format: 'uuid' });
-
-// no validation
-export function createData<T extends TSchema>(_: T, data: Static<T>) {
-  return data;
-}
 
 const ajv = addFormats(new Ajv({}), [
   'date-time',

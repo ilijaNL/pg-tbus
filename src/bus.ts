@@ -22,10 +22,23 @@ export type WorkerConfig = {
 };
 
 export type TBusConfiguration = {
+  /**
+   * Postgres database pool or existing pool
+   */
   db: Pool | PoolConfig;
+  /**
+   * Task worker configuration
+   */
   worker?: Partial<WorkerConfig>;
+  /**
+   * Postgres database schema to use
+   * Note: changing schemas will result in event/task loss
+   */
   schema: string;
-  taskConfig?: Partial<TaskConfig>;
+  /**
+   * Default configuration of eventHandlers/task handlers
+   */
+  handlerConfig?: Partial<TaskConfig>;
 };
 
 type TaskName = string;
@@ -65,6 +78,11 @@ const createPlans = (schema: string) => {
   };
 };
 
+/**
+ * Create a pg-tbus instance.
+ * @serviceName should be unique for the service. Using the same @serviceName with multiple instance will distribute work across instances
+ *
+ */
 const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   // K: task_name, should be unique
   const eventHandlersMap = new Map<TaskName, EventHandler<string, TSchema>>();
@@ -85,7 +103,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
 
   const toJob = createJobFactory({
     getTaskName: getTaskName,
-    taskConfig: configuration.taskConfig ?? {},
+    taskConfig: configuration.handlerConfig ?? {},
   });
 
   const jobPlans = createMessagePlans(schema);
@@ -100,6 +118,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   } else {
     // create connection pool
     pool = new Pool({
+      max: 3,
       ...db,
     });
   }
@@ -134,7 +153,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   const maintainceWorker = createMaintainceWorker({ client: pool, retentionInDays: 30, schema: schema });
 
   /**
-   * Register multiple event handlers
+   * Register one or more event handlers
    */
   function registerHandler(...handlers: EventHandler<string, any>[]) {
     handlers.forEach((handler) => {
@@ -148,7 +167,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   }
 
   /**
-   * Register multiple task definitions
+   * Register one or more task definitions + handlers
    */
   function registerTask(...definitions: TaskDefinition<any>[]) {
     definitions.forEach((definition) => {
@@ -213,6 +232,10 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     registerTask,
     registerHandler,
     start,
+    /**
+     * Publish one or many events to pg-tbus.
+     * Second argument can be used to provide own pg client, this is especially useful when publishing during a transaction
+     */
     publish: async (events: Event<string, any> | Event<string, any>[], client?: PGClient) => {
       const _events = Array.isArray(events) ? events : [events];
       await query(client ?? pool, jobPlans.createEvents(_events));
@@ -226,6 +249,10 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
         notifyFanout();
       }
     },
+    /**
+     * Send one or many task to pg-tbus
+     * Second argument can be used to provide own pg client, this is especially useful when publishing during a transaction
+     */
     send: async (tasks: Task | Task[], client?: PGClient) => {
       const _tasks = Array.isArray(tasks) ? tasks : [tasks];
       await query(client ?? pool, jobPlans.createJobs(_tasks.map((task) => toJob(task, directTrigger))));
@@ -236,6 +263,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
         notifyWorker(taskWorker);
       }
     },
+    /**
+     * Gracefully stops all the workers of pg-tbus.
+     */
     stop: async () => {
       taskWorker = null;
       await boss.stop({ graceful: true, timeout: 2000 });

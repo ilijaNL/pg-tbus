@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
 import tap from 'tap';
-import { createEventHandler, createTBus, defineEvent, defineTask } from '../src';
+import { createEventHandler, createTBus, defineEvent, defineTask, TaskConfig } from '../src';
 import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
 
@@ -246,6 +246,48 @@ tap.test('bus', async (t) => {
       new Date(result.keepuntil).getTime() - new Date(result.createdon).getTime(),
       startAfterInMs + config.keepInSeconds * 1000
     );
+  });
+
+  t.test('event handler config from payload', async ({ teardown, equal }) => {
+    const bus = createTBus('sss', { db: { connectionString: connectionString }, schema: schema });
+    const ee = new EventEmitter();
+    const event = defineEvent({
+      event_name: 'test',
+      schema: Type.Object({
+        c: Type.Number(),
+      }),
+    });
+    const handler = createEventHandler({
+      eventDef: event,
+      task_name: 'handler_event_opt',
+      handler: async () => {
+        ee.emit('p');
+      },
+      config: (input) => {
+        return {
+          retryDelay: input.c + 2,
+        };
+      },
+    });
+
+    bus.registerHandler(handler);
+
+    await bus.start();
+
+    teardown(() => bus.stop());
+
+    await bus.publish(event.from({ c: 91 }));
+
+    // can be short since it notifies internally
+    await once(ee, 'p');
+
+    const taskName = `sss--${handler.task_name}`;
+
+    const result = await sqlPool
+      .query(`SELECT * FROM ${schema}.job WHERE name = '${taskName}' LIMIT 1`)
+      .then((r) => r.rows[0]);
+
+    equal(result.retrydelay, 91 + 2);
   });
 
   t.test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
