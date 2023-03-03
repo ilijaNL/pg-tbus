@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.0.9
+
+### Patch Changes
+
+- Expose query commands + optimalisations
+
 ## 0.0.8
 
 ### Patch Changes
