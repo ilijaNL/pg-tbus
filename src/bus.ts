@@ -1,6 +1,6 @@
 import { TSchema } from '@sinclair/typebox';
 import { EventHandler, Event, Task, TaskHandler, TaskDefinition, TaskTrigger, TaskConfig } from './definitions';
-import { query, PGClient, createSql } from './sql';
+import { query, PGClient, createSql, QueryCommand } from './sql';
 import { Pool, PoolConfig } from 'pg';
 import PgBoss from 'pg-boss';
 import { migrate } from './migrations';
@@ -228,17 +228,32 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     { maxMs: 300, ms: 75 }
   );
 
+  /**
+   * Returnes a query command which can be used to do manual submitting
+   */
+  function getPublishCommand(events: Event<string, any>[]): QueryCommand<{}> {
+    return jobPlans.createEvents(events);
+  }
+
+  /**
+   * Returnes a query command which can be used to do manual submitting
+   */
+  function getSendCommand(tasks: Task[]): QueryCommand<{}> {
+    return jobPlans.createJobs(tasks.map((task) => toJob(task, directTrigger)));
+  }
+
   return {
     registerTask,
     registerHandler,
     start,
+    getPublishCommand,
     /**
      * Publish one or many events to pg-tbus.
      * Second argument can be used to provide own pg client, this is especially useful when publishing during a transaction
      */
     publish: async (events: Event<string, any> | Event<string, any>[], client?: PGClient) => {
       const _events = Array.isArray(events) ? events : [events];
-      await query(client ?? pool, jobPlans.createEvents(_events));
+      await query(client ?? pool, getPublishCommand(_events));
 
       // check if instance is affected by the published events
       const allRegisteredEvents = Array.from(eventHandlersMap.values());
@@ -249,13 +264,14 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
         notifyFanout();
       }
     },
+    getSendCommand,
     /**
      * Send one or many task to pg-tbus
      * Second argument can be used to provide own pg client, this is especially useful when publishing during a transaction
      */
     send: async (tasks: Task | Task[], client?: PGClient) => {
       const _tasks = Array.isArray(tasks) ? tasks : [tasks];
-      await query(client ?? pool, jobPlans.createJobs(_tasks.map((task) => toJob(task, directTrigger))));
+      await query(client ?? pool, getSendCommand(_tasks));
 
       // check if instance is affected by the new tasks
       const hasEffectToCurrentWorker = _tasks.some((t) => taskHandlersMap.has(t.task_name));

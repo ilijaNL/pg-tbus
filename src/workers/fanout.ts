@@ -26,19 +26,7 @@ const createPlans = (schema: string) => {
     return cmd;
   }
 
-  function getCursorAndLock(service_name: string) {
-    return sql<{ cursor: string }>`
-      SELECT 
-        l_p as cursor
-      FROM {{schema}}.cursors 
-      WHERE svc = ${service_name}
-      LIMIT 1
-      FOR UPDATE
-      SKIP LOCKED
-    `;
-  }
-
-  function getEvents(offset: number, options: { limit: number }) {
+  function getCursorLockEvents(service_name: string, options: { limit: number }) {
     const events = sql<_Event>`
       SELECT 
         id, 
@@ -46,16 +34,41 @@ const createPlans = (schema: string) => {
         event_data,
         pos as position
       FROM {{schema}}.events
-      WHERE pos > ${offset}
+      -- pos > 0 needed for index scan
+      WHERE pos > 0 
+      AND pos > (
+        SELECT 
+          l_p as cursor
+        FROM {{schema}}.cursors 
+        WHERE svc = ${service_name}
+        LIMIT 1
+        FOR UPDATE
+        SKIP LOCKED
+      )
       ORDER BY pos ASC
       LIMIT ${options.limit}`;
 
     return events;
   }
 
+  // function getEvents(offset: number, options: { limit: number }) {
+  //   const events = sql<_Event>`
+  //     SELECT
+  //       id,
+  //       event_name,
+  //       event_data,
+  //       pos as position
+  //     FROM {{schema}}.events
+  //     WHERE pos > ${offset}
+  //     ORDER BY pos ASC
+  //     LIMIT ${options.limit}`;
+
+  //   return events;
+  // }
+
   return {
-    getCursorAndLock,
-    getEvents,
+    getCursorLockEvents,
+    // getEvents,
     createJobsAndUpdateCursor,
   };
 };
@@ -99,15 +112,9 @@ export const createFanoutWorker = (props: {
     async () => {
       // start transaction
       const newTasks = await withTransaction(props.pool, async (client) => {
-        const cursor = await query(client, plans.getCursorAndLock(props.serviceName), { name: 'getCursor' }).then(
-          (d) => d[0]?.cursor
-        );
-
-        if (!cursor) {
-          return false;
-        }
-
-        const events = await query(client, plans.getEvents(+cursor, { limit: 100 }), { name: 'getEvents' });
+        const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: 100 }), {
+          name: 'getLockAndEvents',
+        });
 
         if (events.length === 0) {
           return false;

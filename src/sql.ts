@@ -17,7 +17,7 @@ export type PGClient = {
   }>;
 };
 
-type QueryCommand<Result> = {
+export type QueryCommand<Result> = {
   text: string;
   values: unknown[];
   frags: ReadonlyArray<string>;
@@ -69,7 +69,7 @@ export async function query<Result extends QueryResultRow>(
     .query<Result>({
       text: command.text,
       values: command.values,
-      name: opts?.name,
+      ...opts,
     })
     .then((d) => d.rows);
 }
