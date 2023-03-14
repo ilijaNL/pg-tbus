@@ -107,9 +107,15 @@ export const createFanoutWorker = (props: {
 }) => {
   const plans = createPlans(props.schema);
   // worker which responsible for creating tasks from incoming integrations events
-  // TODO: convert getEvents & createJobsAndUpdateCursor into single CTE for more performance and less locking
   const fanoutWorker = createBaseWorker(
     async () => {
+      const handlers = props.getEventHandlers();
+      if (handlers.length === 0) {
+        return false;
+      }
+
+      const eventToJobs = createEventToJobs(handlers, props.jobFactory);
+
       // start transaction
       const newTasks = await withTransaction(props.pool, async (client) => {
         const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: 100 }), {
@@ -121,8 +127,6 @@ export const createFanoutWorker = (props: {
         }
 
         const newCursor = +events[events.length - 1]!.position;
-
-        const eventToJobs = createEventToJobs(props.getEventHandlers(), props.jobFactory);
         const jobs = events.map(eventToJobs).flat();
 
         await query(
