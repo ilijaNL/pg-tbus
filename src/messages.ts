@@ -1,6 +1,6 @@
 import { defaultTaskConfig, Task, TaskConfig, TaskTrigger, Event } from './definitions';
 import { createSql } from './sql';
-import fastJSON from 'fast-json-stable-stringify';
+import fastJSON from 'safe-stable-stringify';
 
 export type TaskName = string;
 
