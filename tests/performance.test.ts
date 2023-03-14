@@ -38,13 +38,13 @@ tap.test('latency', async (t) => {
 
   bus.registerHandler(handler);
 
+  await bus.start();
+
   t.teardown(async () => {
     await bus.stop();
     await cleanupSchema(sqlPool, schema);
     await sqlPool.end();
   });
-
-  await bus.start();
 
   const time = Date.now();
 

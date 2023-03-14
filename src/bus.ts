@@ -284,9 +284,8 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
      */
     stop: async () => {
       taskWorker = null;
-      await boss.stop({ graceful: true, timeout: 2000 });
 
-      await Promise.all([fanoutWorker.stop(), maintainceWorker.stop()]);
+      await Promise.all([fanoutWorker.stop(), maintainceWorker.stop(), boss.stop({ graceful: true, timeout: 2000 })]);
 
       if (!remotePool) {
         await pool.end();

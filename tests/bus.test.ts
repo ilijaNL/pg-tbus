@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
 import tap from 'tap';
-import { createEventHandler, createTBus, defineEvent, defineTask, TaskConfig } from '../src';
+import { createEventHandler, createTBus, defineEvent, defineTask } from '../src';
 import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
 
@@ -367,10 +367,9 @@ tap.test('bus', async (t) => {
   });
 });
 
-tap.test('concurrency', async ({ teardown, plan, equal }) => {
-  plan(1);
-
-  const schema = createRandomSchema();
+tap.test('concurrency', async ({ teardown, equal }) => {
+  let published = false;
+  const schema = 'concurrentschema';
   const bus1 = createTBus('concurrent', {
     db: { connectionString: connectionString },
     schema: schema,
@@ -397,6 +396,8 @@ tap.test('concurrency', async ({ teardown, plan, equal }) => {
     task_name: 'task',
     eventDef: event,
     handler: async (props) => {
+      equal(published, false);
+      published = true;
       equal('123', props.input.text);
     },
   });
@@ -405,6 +406,8 @@ tap.test('concurrency', async ({ teardown, plan, equal }) => {
     task_name: 'task',
     eventDef: event,
     handler: async (props) => {
+      equal(published, false);
+      published = true;
       equal('123', props.input.text);
     },
   });
@@ -422,5 +425,5 @@ tap.test('concurrency', async ({ teardown, plan, equal }) => {
 
   await bus1.publish(event.from({ text: '123' }));
 
-  await new Promise((resolve) => setTimeout(resolve, 6000));
+  await new Promise((resolve) => setTimeout(resolve, 2000));
 });
