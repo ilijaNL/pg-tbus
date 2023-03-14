@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.0.10
+
+### Patch Changes
+
+- 0c10ce7: Switch to safe-stable-stringify
+
 ## 0.0.9
 
 ### Patch Changes
