@@ -20,13 +20,13 @@ export function createBaseWorker(run: () => Promise<ShouldContinue>, props: { lo
   async function loop() {
     while (state.running) {
       const started = Date.now();
-
       const shouldContinue = await run();
       const duration = Date.now() - started;
 
-      if (state.running && state.notified === false && duration < loopInterval) {
-        // give it a small timeout
-        loopDelayPromise = delay(shouldContinue ? 10 : loopInterval - duration);
+      if (state.running) {
+        // do alteast 5 ms for non blocking loop
+        const delayDuration = Math.max(shouldContinue || state.notified === true ? 5 : loopInterval - duration, 5);
+        loopDelayPromise = delay(delayDuration);
         await loopDelayPromise;
       }
 

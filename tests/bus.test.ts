@@ -11,6 +11,7 @@ const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localho
 tap.jobs = 5;
 
 tap.test('bus', async (t) => {
+  tap.jobs = 5;
   const schema = 'abc';
 
   const sqlPool = new Pool({
@@ -180,10 +181,10 @@ tap.test('bus', async (t) => {
 
     await bus.send(taskDef.from({ works: 'abcd' }));
 
-    const taskName = `svc--options_task`;
+    const queue = `svc`;
 
     const result = await sqlPool
-      .query(`SELECT * FROM ${schema}.job WHERE name = '${taskName}' LIMIT 1`)
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'options_task' LIMIT 1`)
       .then((r) => r.rows[0]);
 
     const startAfterInMs = 45000;
@@ -230,10 +231,8 @@ tap.test('bus', async (t) => {
     // can be short since it notifies internally
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    const taskName = `sss--handler_task_config`;
-
     const result = await sqlPool
-      .query(`SELECT * FROM ${schema}.job WHERE name = '${taskName}' LIMIT 1`)
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = 'sss' AND data->>'tn' = 'handler_task_config' LIMIT 1`)
       .then((r) => r.rows[0]);
 
     const startAfterInMs = config.startAfterSeconds * 1000;
@@ -281,10 +280,10 @@ tap.test('bus', async (t) => {
     // can be short since it notifies internally
     await once(ee, 'p');
 
-    const taskName = `sss--${handler.task_name}`;
+    const queue = `sss`;
 
     const result = await sqlPool
-      .query(`SELECT * FROM ${schema}.job WHERE name = '${taskName}' LIMIT 1`)
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'handler_event_opt' LIMIT 1`)
       .then((r) => r.rows[0]);
 
     equal(result.retrydelay, 91 + 2);
