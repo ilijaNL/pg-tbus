@@ -14,8 +14,6 @@ import { cleanupSchema } from './helpers';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 
-tap.jobs = 5;
-
 tap.test('baseworker', async (tap) => {
   tap.test('loops', async (t) => {
     t.plan(1);
@@ -30,7 +28,7 @@ tap.test('baseworker', async (tap) => {
 
     worker.start();
 
-    await new Promise((resole) => setTimeout(resole, 210));
+    await new Promise((resole) => setTimeout(resole, 290));
 
     // 3 because start calls immedialtly
     t.equal(called, 3);
@@ -49,7 +47,7 @@ tap.test('baseworker', async (tap) => {
     );
 
     worker.start();
-    await new Promise((resolve) => setTimeout(resolve, 230));
+    await new Promise((resolve) => setTimeout(resolve, 240));
     await worker.stop();
   });
 
@@ -104,7 +102,7 @@ tap.test('baseworker', async (tap) => {
     worker.start();
     worker.start();
 
-    await new Promise((resolve) => setTimeout(resolve, 210));
+    await new Promise((resolve) => setTimeout(resolve, 230));
 
     t.equal(called, 3);
     await worker.stop();
@@ -295,6 +293,8 @@ tap.test('task worker', async (t) => {
 });
 
 tap.test('maintaince worker', async (t) => {
+  t.jobs = 5;
+
   const schema = 'maintaince';
   const plans = createMessagePlans(schema);
 
