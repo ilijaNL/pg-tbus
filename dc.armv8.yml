@@ -1,0 +1,4 @@
+version: '3.8'
+services:
+  postgres:
+    image: arm64v8/postgres:14
