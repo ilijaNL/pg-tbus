@@ -15,7 +15,7 @@ CREATE TABLE {{schema}}.tasks (
   keepUntil timestamp with time zone NOT NULL default now() + interval '14 days',
   output jsonb
 ) -- https://www.cybertec-postgresql.com/en/what-is-fillfactor-and-how-does-it-affect-postgresql-performance/
-WITH (fillfactor=80);
+WITH (fillfactor=90);
 
 -- 0: create, 1: retry, 2: active, 3 >= all completed/failed
 CREATE INDEX idx_get_tasks ON {{schema}}."tasks" ("queue", startAfter) WHERE state < 2;
