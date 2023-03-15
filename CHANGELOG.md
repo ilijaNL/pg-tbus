@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.1.0
+
+### Minor Changes
+
+- 5963c8c: Replace pg-boss with own task worker
+
 ## 0.0.10
 
 ### Patch Changes
