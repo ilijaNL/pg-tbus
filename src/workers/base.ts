@@ -12,41 +12,52 @@ export function createBaseWorker(run: () => Promise<ShouldContinue>, props: { lo
   const { loopInterval } = props;
   let loopPromise: Promise<any>;
   let loopDelayPromise: delay.ClearablePromise<void> | null = null;
-  let running = false;
+  const state = {
+    running: false,
+    notified: false,
+  };
 
   async function loop() {
-    while (running) {
+    while (state.running) {
       const started = Date.now();
       const shouldContinue = await run();
       const duration = Date.now() - started;
 
-      if (!shouldContinue && duration < loopInterval && running) {
-        loopDelayPromise = delay(loopInterval - duration);
+      if (state.running) {
+        // do alteast 5 ms for non blocking loop
+        const delayDuration = Math.max(shouldContinue || state.notified === true ? 5 : loopInterval - duration, 5);
+        loopDelayPromise = delay(delayDuration);
         await loopDelayPromise;
       }
+
+      // clean up
+      loopDelayPromise = null;
+      state.notified = false;
     }
   }
 
   function notify() {
-    if (loopDelayPromise && running) {
+    state.notified = true;
+    if (loopDelayPromise && state.notified) {
       loopDelayPromise.clear();
     }
   }
 
   function start() {
-    if (running) {
+    if (state.running) {
       return;
     }
-    running = true;
+    state.running = true;
     loopPromise = loop();
   }
 
   async function stop() {
-    if (!running) {
+    if (state.running === false) {
       return;
     }
 
-    running = false;
+    state.running = false;
+
     // fix for clear bug
     setImmediate(() => loopDelayPromise?.clear());
 

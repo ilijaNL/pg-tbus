@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { combineSQL, createSql, query, withTransaction } from '../sql';
 import { createBaseWorker } from './base';
 import { EventHandler } from '../definitions';
-import { createMessagePlans, Job, JobFactory } from '../messages';
+import { createMessagePlans, InsertTask, taskFactory } from '../messages';
 
 type _Event = { id: string; event_name: string; event_data: any; position: string };
 
@@ -10,10 +10,10 @@ const createPlans = (schema: string) => {
   const sql = createSql(schema);
   const taskSql = createMessagePlans(schema);
 
-  function createJobsAndUpdateCursor(props: { jobs: Job[]; service_name: string; last_position: number }) {
+  function createJobsAndUpdateCursor(props: { tasks: InsertTask[]; service_name: string; last_position: number }) {
     const res = combineSQL`
       WITH insert as (
-        ${taskSql.createJobs(props.jobs)}
+        ${taskSql.createTasks(props.tasks)}
       ) ${sql`
         UPDATE {{schema}}.cursors 
         SET l_p = ${props.last_position} 
@@ -73,7 +73,7 @@ const createPlans = (schema: string) => {
   };
 };
 
-const createEventToJobs = (eventHandlers: EventHandler<string, any>[], jobFactory: JobFactory) => (event: _Event) => {
+const createEventToTasks = (eventHandlers: EventHandler<string, any>[], jobFactory: taskFactory) => (event: _Event) => {
   return eventHandlers.reduce((agg, curr) => {
     if (curr.def.event_name !== event.event_name) {
       return agg;
@@ -81,7 +81,7 @@ const createEventToJobs = (eventHandlers: EventHandler<string, any>[], jobFactor
 
     const config = typeof curr.config === 'function' ? curr.config(event.event_data) : curr.config;
 
-    const task: Job = jobFactory(
+    const task: InsertTask = jobFactory(
       {
         data: event.event_data,
         task_name: curr.task_name,
@@ -94,7 +94,7 @@ const createEventToJobs = (eventHandlers: EventHandler<string, any>[], jobFactor
     );
 
     return [...agg, task];
-  }, [] as Job[]);
+  }, [] as InsertTask[]);
 };
 
 export const createFanoutWorker = (props: {
@@ -103,7 +103,7 @@ export const createFanoutWorker = (props: {
   schema: string;
   getEventHandlers: () => EventHandler<string, any>[];
   onNewTasks: () => void;
-  jobFactory: JobFactory;
+  taskFactory: taskFactory;
 }) => {
   const plans = createPlans(props.schema);
   // worker which responsible for creating tasks from incoming integrations events
@@ -114,8 +114,7 @@ export const createFanoutWorker = (props: {
         return false;
       }
 
-      const eventToJobs = createEventToJobs(handlers, props.jobFactory);
-
+      const eventToTasks = createEventToTasks(props.getEventHandlers(), props.taskFactory);
       // start transaction
       const newTasks = await withTransaction(props.pool, async (client) => {
         const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: 100 }), {
@@ -127,12 +126,12 @@ export const createFanoutWorker = (props: {
         }
 
         const newCursor = +events[events.length - 1]!.position;
-        const jobs = events.map(eventToJobs).flat();
+        const tasks = events.map(eventToTasks).flat();
 
         await query(
           client,
           plans.createJobsAndUpdateCursor({
-            jobs,
+            tasks: tasks,
             last_position: newCursor,
             service_name: props.serviceName,
           }),
@@ -141,7 +140,7 @@ export const createFanoutWorker = (props: {
           }
         );
 
-        return jobs.length > 0;
+        return tasks.length > 0;
       });
 
       if (newTasks) {

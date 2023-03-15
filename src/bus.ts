@@ -2,12 +2,12 @@ import { TSchema } from '@sinclair/typebox';
 import { EventHandler, Event, Task, TaskHandler, TaskDefinition, TaskTrigger, TaskConfig } from './definitions';
 import { query, PGClient, createSql, QueryCommand } from './sql';
 import { Pool, PoolConfig } from 'pg';
-import PgBoss from 'pg-boss';
 import { migrate } from './migrations';
 import path from 'path';
 import { debounce } from './utils';
-import { createJobFactory, createMessagePlans, TaskDTO } from './messages';
+import { createTaskFactory, createMessagePlans } from './messages';
 import { createFanoutWorker } from './workers/fanout';
+import { createTaskWorker } from './workers/task';
 import { createMaintainceWorker } from './workers/maintaince';
 
 export type WorkerConfig = {
@@ -89,7 +89,10 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
   const taskHandlersMap = new Map<TaskName, TaskHandler<any>>();
   const { schema, db, worker } = configuration;
 
-  let taskWorker: string | null = null;
+  const state = {
+    started: false,
+    stopped: false,
+  };
 
   const workerConfig = Object.assign<WorkerConfig, Partial<WorkerConfig>>(
     {
@@ -99,10 +102,8 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     worker ?? {}
   );
 
-  const getTaskName = (task: string) => `${serviceName}--${task}`;
-
-  const toJob = createJobFactory({
-    getTaskName: getTaskName,
+  const toJob = createTaskFactory({
+    queue: serviceName,
     taskConfig: configuration.handlerConfig ?? {},
   });
 
@@ -123,17 +124,22 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     });
   }
 
-  const boss = new PgBoss({
-    db: {
-      executeSql: (text, values) =>
-        pool.query({
-          text,
-          values,
-        }),
+  const tWorker = createTaskWorker({
+    client: pool,
+    maxConcurrency: workerConfig.concurrency,
+    poolInternvalInMs: workerConfig.intervalInMs,
+    queue: serviceName,
+    schema,
+    async handler({ data: { data, tn, trace } }) {
+      const taskHandler = taskHandlersMap.get(tn);
+
+      // log
+      if (!taskHandler) {
+        return;
+      }
+
+      await taskHandler({ name: tn, input: data, trigger: trace });
     },
-    schema: schema,
-    noScheduling: true,
-    onComplete: false,
   });
 
   // worker which responsible for creating tasks from incoming integrations events
@@ -142,11 +148,9 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
     serviceName: serviceName,
     pool,
     getEventHandlers: () => Array.from(eventHandlersMap.values()),
-    jobFactory: toJob,
+    taskFactory: toJob,
     onNewTasks() {
-      if (taskWorker) {
-        boss.notifyWorker(taskWorker);
-      }
+      notifyWorker();
     },
   });
 
@@ -183,50 +187,24 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
    * Start workers of the pg-tbus
    */
   async function start() {
-    if (taskWorker) {
+    if (state.started) {
       return;
     }
+
+    state.started = true;
 
     await migrate(pool, schema, path.join(__dirname, '..', 'migrations'));
 
     const lastCursor = (await query(pool, plans.getLastEvent()))[0];
     await query(pool, plans.ensureServicePointer(serviceName, +(lastCursor?.position ?? 0)));
 
-    await boss.start();
-    const taskListener = getTaskName('*');
-
-    taskWorker = await boss.work<TaskDTO<any>, any>(
-      taskListener,
-      {
-        teamSize: workerConfig.concurrency * 2,
-        newJobCheckInterval: workerConfig.intervalInMs,
-        teamConcurrency: workerConfig.concurrency,
-      },
-      async function handler({ data: { data, tn, trace: trigger } }) {
-        const taskHandler = taskHandlersMap.get(tn);
-
-        // log
-        if (!taskHandler) {
-          return;
-        }
-
-        await taskHandler({ name: tn, input: data, trigger: trigger });
-      }
-    );
-
+    tWorker.start();
     fanoutWorker.start();
     maintainceWorker.start();
   }
 
   const notifyFanout = debounce(() => fanoutWorker.notify(), { ms: 75, maxMs: 300 });
-  const notifyWorker = debounce(
-    (taskWorker: string | null) => {
-      if (taskWorker) {
-        boss.notifyWorker(taskWorker);
-      }
-    },
-    { maxMs: 300, ms: 75 }
-  );
+  const notifyWorker = debounce(() => tWorker.notify(), { maxMs: 300, ms: 75 });
 
   /**
    * Returnes a query command which can be used to do manual submitting
@@ -239,7 +217,7 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
    * Returnes a query command which can be used to do manual submitting
    */
   function getSendCommand(tasks: Task[]): QueryCommand<{}> {
-    return jobPlans.createJobs(tasks.map((task) => toJob(task, directTrigger)));
+    return jobPlans.createTasks(tasks.map((task) => toJob(task, directTrigger)));
   }
 
   return {
@@ -275,18 +253,21 @@ const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
 
       // check if instance is affected by the new tasks
       const hasEffectToCurrentWorker = _tasks.some((t) => taskHandlersMap.has(t.task_name));
-      if (taskWorker && hasEffectToCurrentWorker) {
-        notifyWorker(taskWorker);
+      if (hasEffectToCurrentWorker) {
+        notifyWorker();
       }
     },
     /**
      * Gracefully stops all the workers of pg-tbus.
      */
     stop: async () => {
-      taskWorker = null;
-      await boss.stop({ graceful: true, timeout: 2000 });
+      if (state.started === false || state.stopped === true) {
+        return;
+      }
 
-      await Promise.all([fanoutWorker.stop(), maintainceWorker.stop()]);
+      state.stopped = true;
+
+      await Promise.all([fanoutWorker.stop(), maintainceWorker.stop(), tWorker.stop()]);
 
       if (!remotePool) {
         await pool.end();
