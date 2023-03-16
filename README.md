@@ -2,6 +2,8 @@
 
 End-to-end typesafe tasks and integration events on postgres made easy.
 
+[![codecov](https://codecov.io/gh/ilijaNL/pg-tbus/branch/master/graph/badge.svg?token=08H5Z8ZL40)](https://codecov.io/gh/ilijaNL/pg-tbus)
+
 ## Usage
 
 1. Define integration events
