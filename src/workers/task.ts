@@ -1,8 +1,8 @@
 import { createBaseWorker } from './base';
-import createBatcher from '../batcher';
 import { PGClient, query } from '../sql';
 import { SelectTask, createMessagePlans } from '../messages';
 import { resolveWithinSeconds } from '../utils';
+import { createBatcher } from 'node-batcher';
 
 type ResolveResponse = { task_id: string; success: boolean; payload: any };
 
@@ -42,19 +42,17 @@ export const createTaskWorker = (props: {
   const { maxConcurrency, client, queue, schema, handler, poolInternvalInMs } = props;
   const plans = createMessagePlans(schema);
 
-  const resolveTaskBatcher = createBatcher<ResolveResponse>(
-    async (batch) => {
-      const q = plans.resolveTasks(batch.map((i) => ({ p: i.payload, s: i.success, t: i.task_id })));
+  const resolveTaskBatcher = createBatcher<ResolveResponse>({
+    async onFlush(batch) {
+      const q = plans.resolveTasks(batch.map(({ data: i }) => ({ p: i.payload, s: i.success, t: i.task_id })));
 
       await query(client, q);
     },
-    {
-      // dont make to big since payload can be big
-      maxSize: 100,
-      // keep it low latency
-      maxTimeInMs: 60,
-    }
-  );
+    // dont make to big since payload can be big
+    maxSize: 100,
+    // keep it low latency
+    maxTimeInMs: 50,
+  });
 
   function resolveTask(task: SelectTask, err: any, result?: any) {
     // if this throws, something went really wrong
