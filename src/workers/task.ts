@@ -78,7 +78,7 @@ export const createTaskWorker = (props: {
       }
 
       tasks.forEach((task) => {
-        const jobPromise = resolveWithinSeconds(handler(task), task.expireInSeconds)
+        const jobPromise = resolveWithinSeconds(handler(task), task.expire_in_seconds)
           .then((result) => {
             resolveTask(task, null, result);
           })

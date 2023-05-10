@@ -81,19 +81,21 @@ const createEventToTasks = (eventHandlers: EventHandler<string, any>[], jobFacto
 
     const config = typeof curr.config === 'function' ? curr.config(event.event_data) : curr.config;
 
-    const task: InsertTask = jobFactory(
-      {
-        data: event.event_data,
-        task_name: curr.task_name,
-        config: config,
-      },
-      {
-        type: 'event',
-        e: { id: event.id, name: event.event_name, p: +event.position },
-      }
+    agg.push(
+      jobFactory(
+        {
+          data: event.event_data,
+          task_name: curr.task_name,
+          config: config,
+        },
+        {
+          type: 'event',
+          e: { id: event.id, name: event.event_name, p: +event.position },
+        }
+      )
     );
 
-    return [...agg, task];
+    return agg;
   }, [] as InsertTask[]);
 };
 
@@ -114,7 +116,7 @@ export const createFanoutWorker = (props: {
         return false;
       }
 
-      const eventToTasks = createEventToTasks(props.getEventHandlers(), props.taskFactory);
+      const eventToTasks = createEventToTasks(handlers, props.taskFactory);
       // start transaction
       const newTasks = await withTransaction(props.pool, async (client) => {
         const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: 100 }), {

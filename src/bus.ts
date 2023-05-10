@@ -78,12 +78,23 @@ const createPlans = (schema: string) => {
   };
 };
 
+export type Bus = {
+  registerTask: (...definitions: TaskDefinition<any>[]) => void;
+  registerHandler: (...handlers: EventHandler<string, any>[]) => void;
+  start: () => Promise<void>;
+  getPublishCommand: (events: Event<string, any>[]) => QueryCommand<{}>;
+  publish: (events: Event<string, any> | Event<string, any>[], client?: PGClient) => Promise<void>;
+  getSendCommand: (tasks: Task[]) => QueryCommand<{}>;
+  send: (tasks: Task | Task[], client?: PGClient) => Promise<void>;
+  stop: () => Promise<void>;
+};
+
 /**
  * Create a pg-tbus instance.
- * @serviceName should be unique for the service. Using the same @serviceName with multiple instance will distribute work across instances
- *
+ * `serviceName` should be unique for the service.
+ * Using the same `serviceName` with multiple instance will distribute work across instances.
  */
-const createTBus = (serviceName: string, configuration: TBusConfiguration) => {
+export const createTBus = (serviceName: string, configuration: TBusConfiguration): Bus => {
   // K: task_name, should be unique
   const eventHandlersMap = new Map<TaskName, EventHandler<string, TSchema>>();
   const taskHandlersMap = new Map<TaskName, TaskHandler<any>>();

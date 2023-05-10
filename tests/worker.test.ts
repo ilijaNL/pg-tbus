@@ -288,7 +288,7 @@ tap.test('task worker', async (t) => {
       .then((r) => r.rows[0]);
 
     t.equal(result.state, TASK_STATES.failed);
-    t.pass(result.output.message.includes('handler execution exceeded'));
+    t.equal(result.output.message, 'handler execution exceeded 1000ms');
   });
 });
 

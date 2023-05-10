@@ -1,4 +1,4 @@
-name: Release
+name: CICD
 
 on:
   push:
@@ -8,8 +8,11 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
   release:
     name: Release
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -23,7 +26,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v3
         with:
-          node-version: 16.x
+          node-version: 18.x
           cache: "yarn"
       - run: yarn install --frozen-lockfile
       - run: yarn tc

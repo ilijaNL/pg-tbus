@@ -1,6 +1,5 @@
 import { defaultTaskConfig, Task, TaskConfig, TaskTrigger, Event } from './definitions';
 import { createSql } from './sql';
-import fastJSON from 'safe-stable-stringify';
 
 export type TaskName = string;
 
@@ -21,11 +20,12 @@ export type InsertTask<T = object> = {
   data: TaskDTO<T>;
 } & TaskConfig;
 
-export type SelectTask<T = object> = InsertTask<T> & {
+export type SelectTask<T = object> = {
   id: string;
   retrycount: number;
   state: number;
-  expireInSeconds: number;
+  data: TaskDTO<T>;
+  expire_in_seconds: number;
 };
 
 export const createMessagePlans = (schema: string) => {
@@ -53,7 +53,7 @@ export const createMessagePlans = (schema: string) => {
         (now() + ("startAfterSeconds" * interval '1s'))::timestamp with time zone as startAfter,
         "expireInSeconds" * interval '1s' as expireIn,
         (now() + ("startAfterSeconds" * interval '1s') + ("keepInSeconds" * interval '1s'))::timestamp with time zone as keepUntil
-      FROM json_to_recordset(${fastJSON(tasks)}) as x(
+      FROM json_to_recordset(${JSON.stringify(tasks)}) as x(
         queue text,
         data jsonb,
         "retryLimit" integer,
@@ -76,7 +76,7 @@ export const createMessagePlans = (schema: string) => {
       SELECT
         event_name,
         data as event_data
-      FROM json_to_recordset(${fastJSON(events)}) as x(
+      FROM json_to_recordset(${JSON.stringify(events)}) as x(
         event_name text,
         data jsonb
       )
@@ -107,7 +107,7 @@ export const createMessagePlans = (schema: string) => {
       FROM _tasks
       WHERE t.id = _tasks.id
       RETURNING t.*, 
-        EXTRACT(epoch FROM expireIn) as expireInSeconds
+        (EXTRACT(epoch FROM expireIn))::int as expire_in_seconds
     `,
     resolveTasks: (tasks: Array<{ t: string; p: string; s: boolean }>) => sql`
     WITH _in as (
@@ -115,7 +115,7 @@ export const createMessagePlans = (schema: string) => {
         x.t as task_id,
         x.s as success,
         x.p as payload
-      FROM json_to_recordset(${fastJSON(tasks)}) as x(
+      FROM json_to_recordset(${JSON.stringify(tasks)}) as x(
         t uuid,
         s boolean,
         p jsonb
