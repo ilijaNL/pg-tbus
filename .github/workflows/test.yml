@@ -1,22 +1,13 @@
-name: CI
+name: test
 
 on:
-  push:
-    branches:
-      - "master"
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
+  workflow_call:
   pull_request:
     branches:
       - "master"
     paths-ignore:
       - 'docs/**'
       - '*.md'
-
-permissions:
-  contents: read  # Required when overriding permissions
-  pull-requests: write  # <== Add this to allow action to modify your PR
 
 jobs:
   # Label of the container job

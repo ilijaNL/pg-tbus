@@ -1,7 +1,7 @@
 {
   "name": "pg-tbus",
   "author": "IlijaNL",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "types": "dist/index.d.ts",
   "module": "dist/index.mjs",
   "main": "dist/index.js",
@@ -40,7 +40,7 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "@sinclair/typebox": "^0.25.9",
+    "@sinclair/typebox": "^0.26.6",
     "ajv": "^8.8.2",
     "ajv-formats": "^2.1.1",
     "delay": "^5.0.0",
