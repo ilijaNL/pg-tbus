@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.1.2
+
+### Patch Changes
+
+- Fix expire_in_time
+
 ## 0.1.1
 
 ### Patch Changes
