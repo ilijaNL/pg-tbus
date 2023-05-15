@@ -2802,10 +2802,10 @@ natural-compare@^1.4.0:
   resolved "https://registry.yarnpkg.com/natural-compare/-/natural-compare-1.4.0.tgz#4abebfeed7541f2c27acfb29bdbbd15c8d5ba4f7"
   integrity sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==
 
-node-batcher@^0.0.3:
-  version "0.0.3"
-  resolved "https://registry.yarnpkg.com/node-batcher/-/node-batcher-0.0.3.tgz#02e19f9577e00682434e4c4ec71c84bf145b9123"
-  integrity sha512-EzzXBoUimBVKrpDJj6TMhrE3o0gjKSVGP3Dn6bjLvzJ2ETrJIj9lI2pPnV592lZT8h58anfqzMA5sh+XulJ/Pg==
+node-batcher@^0.1.2:
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/node-batcher/-/node-batcher-0.1.2.tgz#d27a99286df75e2a634c4968d589ff052ccfc586"
+  integrity sha512-YHbw6GWhoqndLykyn+lEONdcortSLTJ5C/rf1zNPhSeuB96HHhkn/oJlADOKPEKfZ1rrFANm2HtMXeI4Eu0a0w==
 
 node-preload@^0.2.1:
   version "0.2.1"

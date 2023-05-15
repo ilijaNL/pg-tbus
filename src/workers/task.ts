@@ -100,7 +100,7 @@ export const createTaskWorker = (props: {
     async stop() {
       await taskWorker.stop();
       await Promise.all(Array.from(activeJobs.values()));
-      await resolveTaskBatcher.flush();
+      await resolveTaskBatcher.waitForAll();
     },
   };
 };
