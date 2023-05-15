@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.1.3
+
+### Patch Changes
+
+- Upgrade node-batcher
+
 ## 0.1.2
 
 ### Patch Changes
