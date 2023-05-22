@@ -4,15 +4,20 @@ import path from 'path';
 import { Pool } from 'pg';
 import { EventEmitter } from 'stream';
 import tap from 'tap';
-import { defineTask, query } from '../src';
-import { createMessagePlans, createTaskFactory, TASK_STATES } from '../src/messages';
+import { PGClient, defineTask, query } from '../src';
+import { createMessagePlans, createTaskFactory, SelectTask, TASK_STATES } from '../src/messages';
 import { migrate } from '../src/migrations';
 import { createBaseWorker } from '../src/workers/base';
 import { createMaintainceWorker } from '../src/workers/maintaince';
 import { createTaskWorker } from '../src/workers/task';
 import { cleanupSchema } from './helpers';
+import { randomUUID } from 'crypto';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
+
+function resolvesInTime<T>(p1: Promise<T>, ms: number) {
+  return Promise.race([p1, new Promise((_, reject) => setTimeout(reject, ms))]);
+}
 
 tap.test('baseworker', async (tap) => {
   tap.test('loops', async (t) => {
@@ -143,6 +148,7 @@ tap.test('task worker', async (t) => {
       poolInternvalInMs: 100,
       queue: queue,
       schema: schema,
+      refillThresholdPct: 0.33,
     });
 
     worker.start();
@@ -178,6 +184,147 @@ tap.test('task worker', async (t) => {
     t.equal(result.state, TASK_STATES.completed);
   });
 
+  t.test('skip fetching when maxConcurrency is reached', async (t) => {
+    let handlerCalls = 0;
+    let queryCalls = 0;
+    const amountOfTasks = 50;
+    const tasks: SelectTask[] = new Array<SelectTask>(amountOfTasks)
+      .fill({
+        state: 0,
+        retrycount: 0,
+        id: randomUUID(),
+        data: {} as any,
+        expire_in_seconds: 10,
+      })
+      .map((i) => ({ ...i, id: randomUUID() }));
+    const ee = new EventEmitter();
+
+    const mockedPool: PGClient = {
+      async query(props) {
+        // this is to fetch tasks
+        if (props.text.includes('FOR UPDATE SKIP LOCKED')) {
+          queryCalls += 1;
+          // $3 is amount of rows requested
+          const rows = tasks.splice(0, props.values[2]);
+
+          return {
+            rowCount: rows.length,
+            rows: rows as any,
+          };
+        }
+
+        return {
+          rowCount: 0,
+          rows: [],
+        };
+      },
+    };
+
+    const worker = createTaskWorker({
+      client: mockedPool,
+      async handler(event) {
+        handlerCalls += 1;
+
+        const delay = 80;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (handlerCalls === amountOfTasks) {
+          ee.emit('completed');
+        }
+        return {
+          works: event.data.tn,
+        };
+      },
+      // fetch all at once
+      maxConcurrency: amountOfTasks,
+      poolInternvalInMs: 20,
+      refillThresholdPct: 0.33,
+      queue: 'abc',
+      schema: schema,
+    });
+
+    worker.start();
+
+    await once(ee, 'completed');
+
+    // wait for last item to be resolved
+    await worker.stop();
+
+    t.equal(queryCalls, 1);
+    t.equal(handlerCalls, amountOfTasks);
+  });
+
+  t.test('refills', async (t) => {
+    const queue = 'refills';
+    let handlerCalls = 0;
+    let queryCalls = 0;
+    const ee = new EventEmitter();
+    const tasks: SelectTask[] = new Array<SelectTask>(100)
+      .fill({
+        state: 0,
+        retrycount: 0,
+        id: randomUUID(),
+        data: {} as any,
+        expire_in_seconds: 10,
+      })
+      .map((i) => ({ ...i, id: randomUUID() }));
+
+    const mockedPool: PGClient = {
+      async query(props) {
+        // this is to fetch tasks
+        if (props.text.includes('FOR UPDATE SKIP LOCKED')) {
+          queryCalls += 1;
+          // $3 is amount of rows
+          const rows = tasks.splice(0, props.values[2]);
+
+          if (tasks.length === 0) {
+            ee.emit('drained');
+          }
+
+          return {
+            rowCount: rows.length,
+            rows: rows as any,
+          };
+        }
+
+        return {
+          rowCount: 0,
+          rows: [],
+        };
+      },
+    };
+    const worker = createTaskWorker({
+      client: mockedPool,
+      async handler(event) {
+        handlerCalls += 1;
+        // resolves between 10-30ms
+        const delay = 10 + Math.random() * 20;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return {
+          works: event.data.tn,
+        };
+      },
+      maxConcurrency: 10,
+      refillThresholdPct: 0.33,
+      poolInternvalInMs: 100,
+      queue: queue,
+      schema: schema,
+    });
+
+    worker.start();
+
+    // should be faster than 1000 because of refilling
+    await t.resolves(resolvesInTime(once(ee, 'drained'), 600));
+
+    // wait for last item to be resolved
+    await worker.stop();
+
+    // make some assumptions such that we dont fetch to much, aka threshold
+    t.ok(queryCalls > 10);
+    t.ok(queryCalls < 20);
+
+    t.equal(handlerCalls, 100);
+  });
+
   t.test('retries', async (t) => {
     const queue = 'retries';
     let called = 0;
@@ -196,6 +343,7 @@ tap.test('task worker', async (t) => {
       },
       maxConcurrency: 10,
       poolInternvalInMs: 200,
+      refillThresholdPct: 0.33,
       queue: queue,
       schema: schema,
     });
@@ -254,6 +402,7 @@ tap.test('task worker', async (t) => {
       },
       maxConcurrency: 10,
       poolInternvalInMs: 100,
+      refillThresholdPct: 0.33,
       queue: queue,
       schema: schema,
     });

@@ -37,15 +37,17 @@ export const createTaskWorker = (props: {
   schema: string;
   maxConcurrency: number;
   poolInternvalInMs: number;
+  refillThresholdPct: number;
 }) => {
   const activeJobs = new Map<string, Promise<any>>();
-  const { maxConcurrency, client, queue, schema, handler, poolInternvalInMs } = props;
+  const { maxConcurrency, client, queue, schema, handler, poolInternvalInMs, refillThresholdPct } = props;
   const plans = createMessagePlans(schema);
+  // used to determine if we can refetch early
+  let hasMoreTasks = false;
 
   const resolveTaskBatcher = createBatcher<ResolveResponse>({
     async onFlush(batch) {
       const q = plans.resolveTasks(batch.map(({ data: i }) => ({ p: i.payload, s: i.success, t: i.task_id })));
-
       await query(client, q);
     },
     // dont make to big since payload can be big
@@ -57,6 +59,14 @@ export const createTaskWorker = (props: {
   function resolveTask(task: SelectTask, err: any, result?: any) {
     // if this throws, something went really wrong
     resolveTaskBatcher.add({ payload: mapCompletionDataArg(err ?? result), success: !err, task_id: task.id });
+
+    activeJobs.delete(task.id);
+
+    // if some treshhold is reached, we can refetch
+    const threshHoldPct = refillThresholdPct;
+    if (hasMoreTasks && activeJobs.size / maxConcurrency < threshHoldPct) {
+      taskWorker.notify();
+    }
   }
 
   const taskWorker = createBaseWorker(
@@ -65,13 +75,11 @@ export const createTaskWorker = (props: {
         return;
       }
 
-      const fetchAmount = Math.min(maxConcurrency - activeJobs.size, maxConcurrency);
+      const requestedAmount = maxConcurrency - activeJobs.size;
+      const tasks = await query(client, plans.getTasks({ amount: requestedAmount, queue }));
 
-      if (fetchAmount <= 0) {
-        return;
-      }
-
-      const tasks = await query(client, plans.getTasks({ amount: fetchAmount, queue }));
+      // high chance that there are more tasks when requested amount is same as fetched
+      hasMoreTasks = tasks.length === requestedAmount;
 
       if (tasks.length === 0) {
         return;
@@ -84,9 +92,6 @@ export const createTaskWorker = (props: {
           })
           .catch((err) => {
             resolveTask(task, err);
-          })
-          .finally(() => {
-            activeJobs.delete(task.id);
           });
 
         activeJobs.set(task.id, jobPromise);

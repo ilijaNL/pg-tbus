@@ -37,8 +37,13 @@ export function createBaseWorker(run: () => Promise<ShouldContinue>, props: { lo
   }
 
   function notify() {
+    // does not make sense to notify when not running
+    if (!state.running) {
+      return;
+    }
+
     state.notified = true;
-    if (loopDelayPromise && state.notified) {
+    if (loopDelayPromise) {
       loopDelayPromise.clear();
     }
   }

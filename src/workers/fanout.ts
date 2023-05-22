@@ -118,7 +118,7 @@ export const createFanoutWorker = (props: {
 
       const eventToTasks = createEventToTasks(handlers, props.taskFactory);
       // start transaction
-      const newTasks = await withTransaction(props.pool, async (client) => {
+      const newTasks = await withTransaction<boolean>(props.pool, async (client) => {
         const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: 100 }), {
           name: 'getLockAndEvents',
         });

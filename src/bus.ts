@@ -19,6 +19,11 @@ export type WorkerConfig = {
    * Interval of pooling the database for new work, default 1500
    */
   intervalInMs: number;
+  /**
+   * Refill threshold percentage, value between 0 - 1, default 0.33.
+   * Automatically refills the task workers queue when activeItems / concurrency < refillPct.
+   */
+  refillPct: number;
 };
 
 export type TBusConfiguration = {
@@ -31,7 +36,7 @@ export type TBusConfiguration = {
    */
   worker?: Partial<WorkerConfig>;
   /**
-   * Postgres database schema to use
+   * Postgres database schema to use.
    * Note: changing schemas will result in event/task loss
    */
   schema: string;
@@ -109,16 +114,17 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     {
       concurrency: 25,
       intervalInMs: 1500,
+      refillPct: 0.33,
     },
     worker ?? {}
   );
 
-  const toJob = createTaskFactory({
+  const toTask = createTaskFactory({
     queue: serviceName,
     taskConfig: configuration.handlerConfig ?? {},
   });
 
-  const jobPlans = createMessagePlans(schema);
+  const taskPlans = createMessagePlans(schema);
   const plans = createPlans(schema);
 
   let pool: Pool;
@@ -140,6 +146,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     maxConcurrency: workerConfig.concurrency,
     poolInternvalInMs: workerConfig.intervalInMs,
     queue: serviceName,
+    refillThresholdPct: workerConfig.refillPct,
     schema,
     async handler({ data: { data, tn, trace } }) {
       const taskHandler = taskHandlersMap.get(tn);
@@ -159,7 +166,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     serviceName: serviceName,
     pool,
     getEventHandlers: () => Array.from(eventHandlersMap.values()),
-    taskFactory: toJob,
+    taskFactory: toTask,
     onNewTasks() {
       notifyWorker();
     },
@@ -221,14 +228,14 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
    * Returnes a query command which can be used to do manual submitting
    */
   function getPublishCommand(events: Event<string, any>[]): QueryCommand<{}> {
-    return jobPlans.createEvents(events);
+    return taskPlans.createEvents(events);
   }
 
   /**
    * Returnes a query command which can be used to do manual submitting
    */
   function getSendCommand(tasks: Task[]): QueryCommand<{}> {
-    return jobPlans.createTasks(tasks.map((task) => toJob(task, directTrigger)));
+    return taskPlans.createTasks(tasks.map((task) => toTask(task, directTrigger)));
   }
 
   return {
