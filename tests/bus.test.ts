@@ -192,6 +192,7 @@ tap.test('bus', async (t) => {
     equal(result.retrylimit, 4);
     equal(result.retrydelay, 45);
     equal(result.retrybackoff, true);
+    equal(result.singleton_key, null);
     equal(new Date(result.startafter).getTime() - new Date(result.createdon).getTime(), startAfterInMs);
     equal(new Date(result.keepuntil).getTime() - new Date(result.createdon).getTime(), startAfterInMs + 6000 * 1000);
   });
@@ -248,7 +249,8 @@ tap.test('bus', async (t) => {
   });
 
   t.test('event handler config from payload', async ({ teardown, equal }) => {
-    const bus = createTBus('sss', { db: { connectionString: connectionString }, schema: schema });
+    const queue = `sss`;
+    const bus = createTBus(queue, { db: { connectionString: connectionString }, schema: schema });
     const ee = new EventEmitter();
     const event = defineEvent({
       event_name: 'test',
@@ -263,8 +265,10 @@ tap.test('bus', async (t) => {
         ee.emit('p');
       },
       config: (input) => {
+        equal(input.c, 91);
         return {
           retryDelay: input.c + 2,
+          singletonKey: 'singleton',
         };
       },
     });
@@ -280,13 +284,107 @@ tap.test('bus', async (t) => {
     // can be short since it notifies internally
     await once(ee, 'p');
 
-    const queue = `sss`;
-
     const result = await sqlPool
       .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'handler_event_opt' LIMIT 1`)
       .then((r) => r.rows[0]);
 
     equal(result.retrydelay, 91 + 2);
+    equal(result.singleton_key, 'singleton');
+  });
+
+  t.test('singleton task', async ({ teardown, equal }) => {
+    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+    const taskDef = defineTask({
+      task_name: 'singleton_task',
+      schema: Type.Object({ works: Type.String() }),
+      config: {
+        expireInSeconds: 5,
+        retryBackoff: true,
+        retryDelay: 45,
+        retryLimit: 4,
+        startAfterSeconds: 45,
+        keepInSeconds: 6000,
+      },
+      handler: async () => {},
+    });
+
+    bus.registerTask(taskDef);
+
+    await bus.start();
+
+    teardown(() => bus.stop());
+
+    await bus.send(taskDef.from({ works: 'abcd' }, { singletonKey: 'single' }));
+    await bus.send(taskDef.from({ works: 'abcd' }, { singletonKey: 'single' }));
+
+    const queue = `svc`;
+
+    const result = await sqlPool
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'options_task'`)
+      .then((r) => r.rows);
+
+    equal(result.length, 1);
+  });
+
+  t.test('event handler singleton from payload', async ({ teardown, equal }) => {
+    const schema = createRandomSchema();
+    const queue = `singleton_queue`;
+    const bus = createTBus(queue, { db: { connectionString: connectionString }, schema: schema });
+    const ee = new EventEmitter();
+    const event = defineEvent({
+      event_name: 'test',
+      schema: Type.Object({
+        c: Type.Number(),
+      }),
+    });
+
+    const task_name = 'event_singleton_task';
+
+    const handler = createEventHandler({
+      eventDef: event,
+      task_name: task_name,
+      handler: async () => {
+        ee.emit('processed');
+      },
+      config: ({ c }) => {
+        ee.emit('task_created');
+        return {
+          singletonKey: 'event_singleton_task_' + c,
+        };
+      },
+    });
+
+    bus.registerHandler(handler);
+
+    await bus.start();
+
+    teardown(async () => {
+      await bus.stop();
+      await cleanupSchema(sqlPool, schema);
+    });
+
+    const cursor = await sqlPool
+      .query(`SELECT * FROM ${schema}.cursors WHERE svc = '${queue}'`)
+      .then((r) => +r.rows[0].l_p);
+
+    await bus.publish([event.from({ c: 91 }), event.from({ c: 93 }), event.from({ c: 91 })]);
+    await bus.publish(event.from({ c: 91 }));
+    await bus.publish(event.from({ c: 93 }));
+    await bus.publish(event.from({ c: 93 }));
+    await bus.publish(event.from({ c: 93 }));
+
+    await once(ee, 'task_created');
+    await once(ee, 'processed');
+
+    const result = await sqlPool
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = '${task_name}'`)
+      .then((r) => r.rows);
+
+    equal(result.length, 2);
+    equal(
+      await sqlPool.query(`SELECT * FROM ${schema}.cursors WHERE svc = '${queue}'`).then((r) => +r.rows[0].l_p),
+      cursor + 7
+    );
   });
 
   t.test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
