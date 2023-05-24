@@ -82,6 +82,13 @@ export const defineEvent = <TName extends string, T extends TSchema>(
   };
 };
 
+export interface EventHandler<TName extends string, T extends TSchema> {
+  task_name: string;
+  def: EventDefinition<TName, T>;
+  handler: TaskHandler<Static<T>>;
+  config: Partial<TaskConfig> | ((input: Static<T>) => Partial<TaskConfig>);
+}
+
 export interface TaskDefinition<T extends TSchema> {
   task_name: string;
   schema: T;
@@ -188,13 +195,6 @@ export const defineTask = <T extends TSchema>(props: {
     config: props.config ?? {},
   };
 };
-
-export interface EventHandler<TName extends string, T extends TSchema> {
-  task_name: string;
-  def: EventDefinition<TName, T>;
-  handler: TaskHandler<Static<T>>;
-  config: Partial<TaskConfig> | ((input: Static<T>) => Partial<TaskConfig>);
-}
 
 /**
  * Create an event handler from an event definition. Task name should be unique for a pg-tbus instance

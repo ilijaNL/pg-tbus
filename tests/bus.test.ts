@@ -5,6 +5,7 @@ import tap from 'tap';
 import { createEventHandler, createTBus, defineEvent, defineTask } from '../src';
 import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
+import stringify from 'safe-stable-stringify';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 
@@ -483,6 +484,58 @@ tap.test('bus', async (tap) => {
 
     await p2;
   });
+});
+
+tap.test('getState', async (t) => {
+  const bus = createTBus('doesnot-matter', {
+    db: { connectionString: connectionString },
+    schema: 'schema',
+  });
+
+  const taskA = defineTask({
+    task_name: 'task_a',
+    schema: Type.Object({ works: Type.String() }),
+    handler: async (props) => {},
+  });
+
+  const taskB = defineTask({
+    task_name: 'task_b',
+    schema: Type.Object({ works: Type.String() }),
+    handler: async (props) => {},
+  });
+
+  const eventA = defineEvent({
+    event_name: 'eventA',
+    schema: Type.Object({
+      c: Type.Number(),
+    }),
+  });
+
+  const eventB = defineEvent({
+    event_name: 'eventB',
+    schema: Type.Object({
+      d: Type.Number(),
+    }),
+  });
+
+  const handlerA = createEventHandler({
+    task_name: 'task_event_a',
+    eventDef: eventA,
+    handler: async () => {},
+  });
+
+  const handlerB = createEventHandler({
+    task_name: 'task_event_b',
+    eventDef: eventB,
+    handler: async () => {},
+  });
+
+  bus.registerTask(taskA, taskB);
+  bus.registerHandler(handlerA, handlerB);
+
+  t.matchSnapshot(stringify(bus.getState(), null, 2));
+  // 2 taskhandlers and 2 event handlers
+  t.equal(bus.getState().tasks.length, 4);
 });
 
 tap.test('concurrency', async (t) => {
