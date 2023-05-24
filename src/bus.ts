@@ -129,7 +129,9 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
 
   let pool: Pool;
 
-  const remotePool = 'query' in db;
+  let cleanupDB = async () => {
+    // noop
+  };
 
   if ('query' in db) {
     pool = db;
@@ -139,6 +141,9 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
       max: 3,
       ...db,
     });
+    cleanupDB = async () => {
+      await pool.end();
+    };
   }
 
   const tWorker = createTaskWorker({
@@ -153,7 +158,8 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
 
       // log
       if (!taskHandler) {
-        return;
+        console.error('task handler ' + tn + 'not registered for service ' + serviceName);
+        throw new Error('task handler ' + tn + 'not registered for service ' + serviceName);
       }
 
       await taskHandler({ name: tn, input: data, trigger: trace });
@@ -173,6 +179,9 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
   });
 
   const maintainceWorker = createMaintainceWorker({ client: pool, retentionInDays: 30, schema: schema });
+
+  const notifyFanout = debounce(() => fanoutWorker.notify(), { ms: 75, maxMs: 300 });
+  const notifyWorker = debounce(() => tWorker.notify(), { maxMs: 300, ms: 75 });
 
   /**
    * Register one or more event handlers
@@ -220,9 +229,6 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     fanoutWorker.start();
     maintainceWorker.start();
   }
-
-  const notifyFanout = debounce(() => fanoutWorker.notify(), { ms: 75, maxMs: 300 });
-  const notifyWorker = debounce(() => tWorker.notify(), { maxMs: 300, ms: 75 });
 
   /**
    * Returnes a query command which can be used to do manual submitting
@@ -287,9 +293,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
 
       await Promise.all([fanoutWorker.stop(), maintainceWorker.stop(), tWorker.stop()]);
 
-      if (!remotePool) {
-        await pool.end();
-      }
+      await cleanupDB();
     },
   };
 };

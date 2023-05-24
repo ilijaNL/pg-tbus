@@ -106,9 +106,7 @@ export const createFanoutWorker = (props: {
       const eventToTasks = createEventToTasks(handlers, props.taskFactory);
       // start transaction
       const trxResult = await withTransaction<{ hasMore: boolean; hasChanged: boolean }>(props.pool, async (client) => {
-        const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: fetchSize }), {
-          name: 'getLockAndEvents',
-        });
+        const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: fetchSize }));
 
         if (events.length === 0) {
           return { hasChanged: false, hasMore: false };
@@ -123,10 +121,7 @@ export const createFanoutWorker = (props: {
             tasks: tasks,
             last_position: newCursor,
             service_name: props.serviceName,
-          }),
-          {
-            name: 'createTasksAndUpdateCursor',
-          }
+          })
         );
 
         return {
