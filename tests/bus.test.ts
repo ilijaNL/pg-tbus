@@ -10,21 +10,22 @@ const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localho
 
 tap.jobs = 5;
 
-tap.test('bus', async (t) => {
+tap.test('bus', async (tap) => {
   tap.jobs = 5;
-  const schema = 'abc';
+  const schema = createRandomSchema();
 
   const sqlPool = new Pool({
     connectionString: connectionString,
+    max: 5,
   });
 
-  t.teardown(async () => {
+  tap.teardown(async () => {
     await cleanupSchema(sqlPool, schema);
     await sqlPool.end();
   });
 
-  t.test('smoke test', async ({ teardown, pass }) => {
-    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+  tap.test('smoke test', async ({ teardown, pass }) => {
+    const bus = createTBus('smoke_test', { db: sqlPool, schema: schema });
 
     await bus.start();
     teardown(() => bus.stop());
@@ -32,12 +33,13 @@ tap.test('bus', async (t) => {
     pass('passes');
   });
 
-  t.test('emit task', async ({ teardown, equal, plan }) => {
-    plan(2);
+  tap.test('emit task', async ({ teardown, equal }) => {
     const ee = new EventEmitter();
-    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+    const queue = 'emit_queue';
+    const bus = createTBus(queue, { db: sqlPool, schema: schema });
+    const task_name = 'emit_task';
     const taskDef = defineTask({
-      task_name: 'task_abc',
+      task_name: task_name,
       schema: Type.Object({ works: Type.String() }),
       handler: async (props) => {
         equal(props.input.works, 'abcd');
@@ -52,16 +54,16 @@ tap.test('bus', async (t) => {
 
     teardown(() => bus.stop());
 
-    await bus.send(taskDef.from({ works: 'abcd' }));
+    const waitProm = once(ee, 'handled');
 
-    await once(ee, 'handled');
+    await bus.send([taskDef.from({ works: 'abcd' }), taskDef.from({ works: 'abcd' })]);
+
+    await waitProm;
   });
 
-  t.test('emit event', async ({ teardown, equal, plan }) => {
-    plan(6);
-
+  tap.test('emit event', async (t) => {
     const ee = new EventEmitter();
-    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+    const bus = createTBus('emit_event_queue', { db: sqlPool, schema: schema });
 
     const event = defineEvent({
       event_name: 'test_event',
@@ -81,8 +83,8 @@ tap.test('bus', async (t) => {
       task_name: 'task_1',
       eventDef: event,
       handler: async (props) => {
-        equal(props.input.text, 'text222');
-        equal(props.trigger.type, 'event');
+        t.equal(props.input.text, 'text222');
+        t.equal(props.trigger.type, 'event');
         ee.emit('handled1');
       },
     });
@@ -91,8 +93,8 @@ tap.test('bus', async (t) => {
       task_name: 'task_2',
       eventDef: event,
       handler: async (props) => {
-        equal(props.input.text, 'text222');
-        equal(props.trigger.type, 'event');
+        t.equal(props.input.text, 'text222');
+        t.equal(props.trigger.type, 'event');
         ee.emit('handled2');
       },
     });
@@ -101,8 +103,8 @@ tap.test('bus', async (t) => {
       task_name: 'task_3',
       eventDef: event2,
       handler: async (props) => {
-        equal(props.input.rrr, 'event2');
-        equal(props.trigger.type, 'event');
+        t.equal(props.input.rrr, 'event2');
+        t.equal(props.trigger.type, 'event');
         ee.emit('handled3');
       },
     });
@@ -111,15 +113,23 @@ tap.test('bus', async (t) => {
 
     await bus.start();
 
-    teardown(() => bus.stop());
+    t.teardown(() => bus.stop());
 
-    await bus.publish([event.from({ text: 'text222' }), event2.from({ rrr: 'event2' })]);
-
-    await resolveWithinSeconds(Promise.all([once(ee, 'handled1'), once(ee, 'handled2'), once(ee, 'handled3')]), 3);
+    await t.resolves(
+      resolveWithinSeconds(
+        Promise.all([
+          bus.publish([event.from({ text: 'text222' }), event2.from({ rrr: 'event2' })]),
+          once(ee, 'handled1'),
+          once(ee, 'handled2'),
+          once(ee, 'handled3'),
+        ]),
+        3
+      )
+    );
   });
 
-  t.test('throws when same task is registered', async ({ throws }) => {
-    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+  tap.test('throws when same task is registered', async ({ throws }) => {
+    const bus = createTBus('svc', { db: sqlPool, schema: schema });
     const taskDef1 = defineTask({
       task_name: 'task_abc',
       schema: Type.Object({ works: Type.String() }),
@@ -134,8 +144,8 @@ tap.test('bus', async (t) => {
     throws(() => bus.registerTask(taskDef1, taskDef2));
   });
 
-  t.test('throws when same eventHandler is registered', async ({ throws }) => {
-    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+  tap.test('throws when same eventHandler is registered', async ({ throws }) => {
+    const bus = createTBus('svc', { db: sqlPool, schema: schema });
 
     const event = defineEvent({
       event_name: 'test_event',
@@ -157,8 +167,10 @@ tap.test('bus', async (t) => {
     throws(() => bus.registerHandler(handler1, handler2));
   });
 
-  t.test('task options', async ({ teardown, equal }) => {
-    const bus = createTBus('svc', { db: { connectionString: connectionString }, schema: schema });
+  tap.test('task options', async ({ teardown, equal }) => {
+    const queue = `task_options`;
+
+    const bus = createTBus(queue, { db: sqlPool, schema: schema });
     const taskDef = defineTask({
       task_name: 'options_task',
       schema: Type.Object({ works: Type.String() }),
@@ -181,8 +193,6 @@ tap.test('bus', async (t) => {
 
     await bus.send(taskDef.from({ works: 'abcd' }));
 
-    const queue = `svc`;
-
     const result = await sqlPool
       .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'options_task' LIMIT 1`)
       .then((r) => r.rows[0]);
@@ -192,12 +202,14 @@ tap.test('bus', async (t) => {
     equal(result.retrylimit, 4);
     equal(result.retrydelay, 45);
     equal(result.retrybackoff, true);
+    equal(result.singleton_key, null);
     equal(new Date(result.startafter).getTime() - new Date(result.createdon).getTime(), startAfterInMs);
     equal(new Date(result.keepuntil).getTime() - new Date(result.createdon).getTime(), startAfterInMs + 6000 * 1000);
   });
 
-  t.test('event handler options', async ({ teardown, equal }) => {
-    const bus = createTBus('sss', { db: { connectionString: connectionString }, schema: schema });
+  tap.test('event handler options', async ({ teardown, equal }) => {
+    const queue = 'handler-options';
+    const bus = createTBus(queue, { db: sqlPool, schema: schema });
 
     const event = defineEvent({
       event_name: 'test',
@@ -209,14 +221,18 @@ tap.test('bus', async (t) => {
       retryBackoff: true,
       retryDelay: 33,
       retryLimit: 5,
-      startAfterSeconds: 2,
+      startAfterSeconds: 1,
       keepInSeconds: 20,
     };
+
+    const ee = new EventEmitter();
 
     const handler = createEventHandler({
       eventDef: event,
       task_name: 'handler_task_config',
-      handler: async () => {},
+      handler: async () => {
+        ee.emit('handled');
+      },
       config: config,
     });
 
@@ -226,13 +242,14 @@ tap.test('bus', async (t) => {
 
     teardown(() => bus.stop());
 
+    const waitP = once(ee, 'handled');
+
     await bus.publish(event.from({}));
 
-    // can be short since it notifies internally
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await waitP;
 
     const result = await sqlPool
-      .query(`SELECT * FROM ${schema}.tasks WHERE queue = 'sss' AND data->>'tn' = 'handler_task_config' LIMIT 1`)
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'handler_task_config' LIMIT 1`)
       .then((r) => r.rows[0]);
 
     const startAfterInMs = config.startAfterSeconds * 1000;
@@ -247,24 +264,29 @@ tap.test('bus', async (t) => {
     );
   });
 
-  t.test('event handler config from payload', async ({ teardown, equal }) => {
-    const bus = createTBus('sss', { db: { connectionString: connectionString }, schema: schema });
+  tap.test('event handler config from payload', async ({ teardown, equal }) => {
+    const queue = `handler_config_p`;
+    const bus = createTBus(queue, { db: sqlPool, schema: schema });
     const ee = new EventEmitter();
     const event = defineEvent({
-      event_name: 'test',
+      event_name: 'event_handler_p',
       schema: Type.Object({
         c: Type.Number(),
       }),
     });
+    const taskName = 'handler_event_opt';
+
     const handler = createEventHandler({
       eventDef: event,
-      task_name: 'handler_event_opt',
+      task_name: taskName,
       handler: async () => {
         ee.emit('p');
       },
       config: (input) => {
+        equal(input.c, 91);
         return {
           retryDelay: input.c + 2,
+          singletonKey: 'singleton',
         };
       },
     });
@@ -275,21 +297,117 @@ tap.test('bus', async (t) => {
 
     teardown(() => bus.stop());
 
+    const waitP = once(ee, 'p');
+
     await bus.publish(event.from({ c: 91 }));
 
-    // can be short since it notifies internally
-    await once(ee, 'p');
-
-    const queue = `sss`;
+    await waitP;
 
     const result = await sqlPool
-      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = 'handler_event_opt' LIMIT 1`)
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = '${taskName}' LIMIT 1`)
       .then((r) => r.rows[0]);
 
     equal(result.retrydelay, 91 + 2);
+    equal(result.singleton_key, 'singleton');
   });
 
-  t.test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
+  tap.test('singleton task', async ({ teardown, equal }) => {
+    const queue = `singleton_task`;
+    const bus = createTBus(queue, { db: sqlPool, schema: schema });
+    const taskName = 'singleton_task';
+    const taskDef = defineTask({
+      task_name: taskName,
+      schema: Type.Object({ works: Type.String() }),
+      config: {
+        expireInSeconds: 5,
+        retryBackoff: true,
+        retryDelay: 45,
+        retryLimit: 4,
+        startAfterSeconds: 45,
+        keepInSeconds: 6000,
+      },
+      handler: async () => {},
+    });
+
+    bus.registerTask(taskDef);
+
+    await bus.start();
+
+    teardown(() => bus.stop());
+
+    await bus.send([
+      taskDef.from({ works: 'abcd' }, { singletonKey: 'single' }),
+      taskDef.from({ works: 'abcd' }, { singletonKey: 'single' }),
+    ]);
+
+    const result = await sqlPool
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = '${taskName}'`)
+      .then((r) => r.rows);
+
+    equal(result.length, 1);
+  });
+
+  tap.test('event handler singleton from payload', async ({ teardown, equal }) => {
+    const queue = `singleton_queue_payload`;
+    // need a schema to ensure no concurrent events are created which affect the cursor assert test
+    const schema = createRandomSchema();
+    const bus = createTBus(queue, { db: sqlPool, schema: schema, worker: { intervalInMs: 200 } });
+
+    const event = defineEvent({
+      event_name: 'event_handler_singleton_payload',
+      schema: Type.Object({
+        c: Type.Number(),
+      }),
+    });
+
+    const task_name = 'event_singleton_task';
+
+    const handler = createEventHandler({
+      eventDef: event,
+      task_name: task_name,
+      handler: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      },
+      config: ({ c }) => {
+        return {
+          singletonKey: 'event_singleton_task_' + c,
+        };
+      },
+    });
+
+    bus.registerHandler(handler);
+
+    await bus.start();
+
+    teardown(async () => {
+      await bus.stop();
+      await cleanupSchema(sqlPool, schema);
+    });
+
+    const cursor = await sqlPool
+      .query(`SELECT * FROM ${schema}.cursors WHERE svc = '${queue}'`)
+      .then((r) => +r.rows[0].l_p);
+
+    await bus.publish([event.from({ c: 91 }), event.from({ c: 93 }), event.from({ c: 91 })]);
+    await bus.publish(event.from({ c: 91 }));
+    await bus.publish(event.from({ c: 93 }));
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const result = await sqlPool
+      .query(`SELECT * FROM ${schema}.tasks WHERE queue = '${queue}' AND data->>'tn' = '${task_name}'`)
+      .then((r) => r.rows);
+
+    equal(result.length, 2);
+
+    // this means that all events are processed by the service
+    equal(
+      await sqlPool.query(`SELECT * FROM ${schema}.cursors WHERE svc = '${queue}'`).then((r) => +r.rows[0].l_p),
+      cursor + 5
+    );
+  });
+
+  tap.test('when registering new service, add last event as cursor', async ({ equal, teardown }) => {
     const schema = createRandomSchema();
     const event = defineEvent({
       event_name: 'test_event',
@@ -317,8 +435,7 @@ tap.test('bus', async (t) => {
     equal(result.rows[0]?.l_p, '2');
   });
 
-  t.test('cursor', async ({ teardown, equal, plan }) => {
-    plan(4);
+  tap.test('cursor', async ({ teardown, equal }) => {
     const ee = new EventEmitter();
     const schema = createRandomSchema();
     const bus = createTBus('cursorservice', { db: { connectionString: connectionString }, schema: schema });
@@ -356,18 +473,21 @@ tap.test('bus', async (t) => {
       await cleanupSchema(sqlPool, schema);
     });
 
+    const p1 = once(ee, 'task_1');
     await bus.publish(event.from({ text: '1' }));
 
-    await once(ee, 'task_1');
+    await p1;
 
+    const p2 = once(ee, 'task_1');
     await bus.publish(event.from({ text: '2' }));
 
-    await once(ee, 'task_1');
+    await p2;
   });
 });
 
-tap.test('concurrency', async ({ teardown, equal }) => {
+tap.test('concurrency', async (t) => {
   let published = false;
+  let handlerCalls = 0;
   const schema = 'concurrentschema';
   const bus1 = createTBus('concurrent', {
     db: { connectionString: connectionString },
@@ -395,9 +515,10 @@ tap.test('concurrency', async ({ teardown, equal }) => {
     task_name: 'task',
     eventDef: event,
     handler: async (props) => {
-      equal(published, false);
+      t.equal(published, false);
       published = true;
-      equal('123', props.input.text);
+      t.equal('123', props.input.text);
+      handlerCalls += 1;
     },
   });
 
@@ -405,9 +526,10 @@ tap.test('concurrency', async ({ teardown, equal }) => {
     task_name: 'task',
     eventDef: event,
     handler: async (props) => {
-      equal(published, false);
+      t.equal(published, false);
       published = true;
-      equal('123', props.input.text);
+      t.equal('123', props.input.text);
+      handlerCalls += 1;
     },
   });
 
@@ -416,7 +538,7 @@ tap.test('concurrency', async ({ teardown, equal }) => {
 
   await Promise.all([bus1.start(), bus2.start()]);
 
-  teardown(async () => {
+  t.teardown(async () => {
     await Promise.all([bus1.stop(), bus2.stop()]);
     await cleanupSchema(sqlPool, schema);
     await sqlPool.end();
@@ -425,4 +547,5 @@ tap.test('concurrency', async ({ teardown, equal }) => {
   await bus1.publish(event.from({ text: '123' }));
 
   await new Promise((resolve) => setTimeout(resolve, 2000));
+  t.equal(handlerCalls, 1);
 });

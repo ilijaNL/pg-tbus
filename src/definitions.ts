@@ -108,6 +108,7 @@ export const defaultTaskConfig: TaskConfig = {
   startAfterSeconds: 0,
   expireInSeconds: 60 * 5, // 5 minutes
   keepInSeconds: 7 * 24 * 60 * 60,
+  singletonKey: null,
 };
 
 export type TaskConfig = {
@@ -116,7 +117,7 @@ export type TaskConfig = {
    */
   retryLimit: number;
   /**
-   * Delay between retries of failed jobs, in seconds. Default 5
+   * Delay between retries of failed tasks, in seconds. Default 5
    */
   retryDelay: number;
   /**
@@ -128,13 +129,17 @@ export type TaskConfig = {
    */
   startAfterSeconds: number;
   /**
-   * How many seconds a job may be in active state before it is failed because of expiration. Default 60 * 5 (5minutes)
+   * How many seconds a task may be in active state before it is failed because of expiration. Default 60 * 5 (5minutes)
    */
   expireInSeconds: number;
   /**
-   * How long job is hold in the jobs table before it is archieved. Default 7 * 24 * 60 * 60 (7 days)
+   * How long task is hold in the tasks table before it is archieved. Default 7 * 24 * 60 * 60 (7 days)
    */
   keepInSeconds: number;
+  /**
+   * A singleton key which can be used to have an unique active task in a queue.
+   */
+  singletonKey: string | null;
 };
 
 /**
@@ -169,7 +174,7 @@ export const defineTask = <T extends TSchema>(props: {
     return {
       data: input,
       task_name: props.task_name,
-      config: { ...config, ...props.config },
+      config: { ...props.config, ...config },
     };
   };
 

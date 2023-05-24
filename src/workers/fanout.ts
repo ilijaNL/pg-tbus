@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { combineSQL, createSql, query, withTransaction } from '../sql';
 import { createBaseWorker } from './base';
 import { EventHandler } from '../definitions';
-import { createMessagePlans, InsertTask, taskFactory } from '../messages';
+import { createMessagePlans, InsertTask, TaskFactory } from '../messages';
 
 type _Event = { id: string; event_name: string; event_data: any; position: string };
 
@@ -10,7 +10,7 @@ const createPlans = (schema: string) => {
   const sql = createSql(schema);
   const taskSql = createMessagePlans(schema);
 
-  function createJobsAndUpdateCursor(props: { tasks: InsertTask[]; service_name: string; last_position: number }) {
+  function createTasksAndUpdateSvcCursor(props: { tasks: InsertTask[]; service_name: string; last_position: number }) {
     const res = combineSQL`
       WITH insert as (
         ${taskSql.createTasks(props.tasks)}
@@ -51,53 +51,39 @@ const createPlans = (schema: string) => {
     return events;
   }
 
-  // function getEvents(offset: number, options: { limit: number }) {
-  //   const events = sql<_Event>`
-  //     SELECT
-  //       id,
-  //       event_name,
-  //       event_data,
-  //       pos as position
-  //     FROM {{schema}}.events
-  //     WHERE pos > ${offset}
-  //     ORDER BY pos ASC
-  //     LIMIT ${options.limit}`;
-
-  //   return events;
-  // }
-
   return {
     getCursorLockEvents,
     // getEvents,
-    createJobsAndUpdateCursor,
+    createTasksAndUpdateSvcCursor,
   };
 };
 
-const createEventToTasks = (eventHandlers: EventHandler<string, any>[], jobFactory: taskFactory) => (event: _Event) => {
-  return eventHandlers.reduce((agg, curr) => {
-    if (curr.def.event_name !== event.event_name) {
+const createEventToTasks =
+  (eventHandlers: EventHandler<string, any>[], taskFactory: TaskFactory) => (event: _Event) => {
+    return eventHandlers.reduce((agg, curr) => {
+      if (curr.def.event_name !== event.event_name) {
+        return agg;
+      }
+
+      const config = typeof curr.config === 'function' ? curr.config(event.event_data) : curr.config;
+
+      agg.push(
+        taskFactory(
+          {
+            data: event.event_data,
+            task_name: curr.task_name,
+            config: config,
+          },
+          {
+            type: 'event',
+            e: { id: event.id, name: event.event_name, p: +event.position },
+          }
+        )
+      );
+
       return agg;
-    }
-
-    const config = typeof curr.config === 'function' ? curr.config(event.event_data) : curr.config;
-
-    agg.push(
-      jobFactory(
-        {
-          data: event.event_data,
-          task_name: curr.task_name,
-          config: config,
-        },
-        {
-          type: 'event',
-          e: { id: event.id, name: event.event_name, p: +event.position },
-        }
-      )
-    );
-
-    return agg;
-  }, [] as InsertTask[]);
-};
+    }, [] as InsertTask[]);
+  };
 
 export const createFanoutWorker = (props: {
   pool: Pool;
@@ -105,9 +91,10 @@ export const createFanoutWorker = (props: {
   schema: string;
   getEventHandlers: () => EventHandler<string, any>[];
   onNewTasks: () => void;
-  taskFactory: taskFactory;
+  taskFactory: TaskFactory;
 }) => {
   const plans = createPlans(props.schema);
+  const fetchSize = 100;
   // worker which responsible for creating tasks from incoming integrations events
   const fanoutWorker = createBaseWorker(
     async () => {
@@ -118,13 +105,11 @@ export const createFanoutWorker = (props: {
 
       const eventToTasks = createEventToTasks(handlers, props.taskFactory);
       // start transaction
-      const newTasks = await withTransaction<boolean>(props.pool, async (client) => {
-        const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: 100 }), {
-          name: 'getLockAndEvents',
-        });
+      const trxResult = await withTransaction<{ hasMore: boolean; hasChanged: boolean }>(props.pool, async (client) => {
+        const events = await query(client, plans.getCursorLockEvents(props.serviceName, { limit: fetchSize }));
 
         if (events.length === 0) {
-          return false;
+          return { hasChanged: false, hasMore: false };
         }
 
         const newCursor = +events[events.length - 1]!.position;
@@ -132,26 +117,26 @@ export const createFanoutWorker = (props: {
 
         await query(
           client,
-          plans.createJobsAndUpdateCursor({
+          plans.createTasksAndUpdateSvcCursor({
             tasks: tasks,
             last_position: newCursor,
             service_name: props.serviceName,
-          }),
-          {
-            name: 'createJobsAndUpdateCursor',
-          }
+          })
         );
 
-        return tasks.length > 0;
+        return {
+          hasChanged: tasks.length > 0,
+          hasMore: events.length === fetchSize,
+        };
       });
 
-      if (newTasks) {
+      if (trxResult.hasChanged) {
         props.onNewTasks();
       }
 
-      return false;
+      return trxResult.hasMore;
     },
-    { loopInterval: 1000 }
+    { loopInterval: 1500 }
   );
 
   return fanoutWorker;

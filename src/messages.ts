@@ -39,6 +39,7 @@ export const createMessagePlans = (schema: string) => {
         retryLimit,
         retryDelay,
         retryBackoff,
+        singleton_key,
         startAfter,
         expireIn,
         keepUntil
@@ -50,9 +51,10 @@ export const createMessagePlans = (schema: string) => {
         "retryLimit",
         "retryDelay",
         "retryBackoff",
-        (now() + ("startAfterSeconds" * interval '1s'))::timestamp with time zone as startAfter,
+        "singletonKey" as singleton_key,
+        (now() + ("startAfterSeconds" * interval '1s'))::timestamptz as startAfter,
         "expireInSeconds" * interval '1s' as expireIn,
-        (now() + ("startAfterSeconds" * interval '1s') + ("keepInSeconds" * interval '1s'))::timestamp with time zone as keepUntil
+        (now() + ("startAfterSeconds" * interval '1s') + ("keepInSeconds" * interval '1s'))::timestamptz as keepUntil
       FROM json_to_recordset(${JSON.stringify(tasks)}) as x(
         queue text,
         data jsonb,
@@ -61,7 +63,8 @@ export const createMessagePlans = (schema: string) => {
         "retryBackoff" boolean,
         "startAfterSeconds" integer,
         "expireInSeconds" integer,
-        "keepInSeconds" integer
+        "keepInSeconds" integer,
+        "singletonKey" text
       )
       ON CONFLICT DO NOTHING
     `;
@@ -155,7 +158,7 @@ export const createMessagePlans = (schema: string) => {
   };
 };
 
-export type taskFactory = ReturnType<typeof createTaskFactory>;
+export type TaskFactory = ReturnType<typeof createTaskFactory>;
 
 export const createTaskFactory =
   (props: { taskConfig: Partial<TaskConfig>; queue: string }) =>

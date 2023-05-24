@@ -60,16 +60,11 @@ export function combineSQL(f: ReadonlyArray<string>, ...parameters: QueryCommand
   };
 }
 
-export async function query<Result extends QueryResultRow>(
-  client: PGClient,
-  command: QueryCommand<Result>,
-  opts?: Partial<{ name: string }>
-) {
+export async function query<Result extends QueryResultRow>(client: PGClient, command: QueryCommand<Result>) {
   return client
     .query<Result>({
       text: command.text,
       values: command.values,
-      ...opts,
     })
     .then((d) => d.rows);
 }

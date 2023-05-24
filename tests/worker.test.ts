@@ -19,6 +19,8 @@ function resolvesInTime<T>(p1: Promise<T>, ms: number) {
   return Promise.race([p1, new Promise((_, reject) => setTimeout(reject, ms))]);
 }
 
+tap.jobs = 5;
+
 tap.test('baseworker', async (tap) => {
   tap.test('loops', async (t) => {
     t.plan(1);
@@ -372,7 +374,8 @@ tap.test('task worker', async (t) => {
     t.equal(insertTask.retryLimit, 1);
 
     await query(sqlPool, plans.createTasks([insertTask]));
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     t.equal(called, 2);
 
@@ -396,7 +399,7 @@ tap.test('task worker', async (t) => {
 
     const worker = createTaskWorker({
       client: sqlPool,
-      async handler(event) {
+      async handler() {
         called += 1;
         await new Promise((resolve) => setTimeout(resolve, 2000));
       },
@@ -428,7 +431,8 @@ tap.test('task worker', async (t) => {
     );
 
     await query(sqlPool, plans.createTasks([insertTask]));
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    await new Promise((resolve) => setTimeout(resolve, 4000));
 
     t.equal(called, 2);
 

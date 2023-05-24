@@ -39,7 +39,7 @@ export const createTaskWorker = (props: {
   poolInternvalInMs: number;
   refillThresholdPct: number;
 }) => {
-  const activeJobs = new Map<string, Promise<any>>();
+  const activeTasks = new Map<string, Promise<any>>();
   const { maxConcurrency, client, queue, schema, handler, poolInternvalInMs, refillThresholdPct } = props;
   const plans = createMessagePlans(schema);
   // used to determine if we can refetch early
@@ -60,22 +60,22 @@ export const createTaskWorker = (props: {
     // if this throws, something went really wrong
     resolveTaskBatcher.add({ payload: mapCompletionDataArg(err ?? result), success: !err, task_id: task.id });
 
-    activeJobs.delete(task.id);
+    activeTasks.delete(task.id);
 
     // if some treshhold is reached, we can refetch
     const threshHoldPct = refillThresholdPct;
-    if (hasMoreTasks && activeJobs.size / maxConcurrency < threshHoldPct) {
+    if (hasMoreTasks && activeTasks.size / maxConcurrency < threshHoldPct) {
       taskWorker.notify();
     }
   }
 
   const taskWorker = createBaseWorker(
     async () => {
-      if (activeJobs.size >= maxConcurrency) {
+      if (activeTasks.size >= maxConcurrency) {
         return;
       }
 
-      const requestedAmount = maxConcurrency - activeJobs.size;
+      const requestedAmount = maxConcurrency - activeTasks.size;
       const tasks = await query(client, plans.getTasks({ amount: requestedAmount, queue }));
 
       // high chance that there are more tasks when requested amount is same as fetched
@@ -86,7 +86,7 @@ export const createTaskWorker = (props: {
       }
 
       tasks.forEach((task) => {
-        const jobPromise = resolveWithinSeconds(handler(task), task.expire_in_seconds)
+        const taskPromise = resolveWithinSeconds(handler(task), task.expire_in_seconds)
           .then((result) => {
             resolveTask(task, null, result);
           })
@@ -94,7 +94,7 @@ export const createTaskWorker = (props: {
             resolveTask(task, err);
           });
 
-        activeJobs.set(task.id, jobPromise);
+        activeTasks.set(task.id, taskPromise);
       });
     },
     { loopInterval: poolInternvalInMs }
@@ -104,7 +104,7 @@ export const createTaskWorker = (props: {
     ...taskWorker,
     async stop() {
       await taskWorker.stop();
-      await Promise.all(Array.from(activeJobs.values()));
+      await Promise.all(Array.from(activeTasks.values()));
       await resolveTaskBatcher.waitForAll();
     },
   };
