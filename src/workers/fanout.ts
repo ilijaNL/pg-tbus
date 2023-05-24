@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { combineSQL, createSql, query, withTransaction } from '../sql';
+import { createSql, query, withTransaction } from '../sql';
 import { createBaseWorker } from './base';
 import { EventHandler } from '../definitions';
 import { createMessagePlans, InsertTask, TaskFactory } from '../messages';
@@ -10,20 +10,16 @@ const createPlans = (schema: string) => {
   const sql = createSql(schema);
   const taskSql = createMessagePlans(schema);
 
-  function createTasksAndUpdateSvcCursor(props: { tasks: InsertTask[]; service_name: string; last_position: number }) {
-    const res = combineSQL`
-      WITH insert as (
-        ${taskSql.createTasks(props.tasks)}
-      ) ${sql`
-        UPDATE {{schema}}.cursors 
-        SET l_p = ${props.last_position} 
-        WHERE svc = ${props.service_name}
-      `}
+  function createTasks(tasks: InsertTask[]) {
+    return taskSql.createTasks(tasks);
+  }
+
+  function updateServiceCursor(service_name: string, last_position: number) {
+    return sql`
+      UPDATE {{schema}}.cursors 
+      SET l_p = ${last_position} 
+      WHERE svc = ${service_name}
     `;
-
-    const cmd = sql(res.sqlFragments, ...res.parameters);
-
-    return cmd;
   }
 
   function getCursorLockEvents(service_name: string, options: { limit: number }) {
@@ -54,7 +50,8 @@ const createPlans = (schema: string) => {
   return {
     getCursorLockEvents,
     // getEvents,
-    createTasksAndUpdateSvcCursor,
+    createTasks,
+    updateServiceCursor,
   };
 };
 
@@ -115,14 +112,8 @@ export const createFanoutWorker = (props: {
         const newCursor = +events[events.length - 1]!.position;
         const tasks = events.map(eventToTasks).flat();
 
-        await query(
-          client,
-          plans.createTasksAndUpdateSvcCursor({
-            tasks: tasks,
-            last_position: newCursor,
-            service_name: props.serviceName,
-          })
-        );
+        await query(client, plans.createTasks(tasks));
+        await query(client, plans.updateServiceCursor(props.serviceName, newCursor));
 
         return {
           hasChanged: tasks.length > 0,

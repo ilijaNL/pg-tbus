@@ -31,59 +31,11 @@ export type SelectTask<T = object> = {
 export const createMessagePlans = (schema: string) => {
   const sql = createSql(schema);
   function createTasks(tasks: InsertTask[]) {
-    return sql<{}>`
-      INSERT INTO {{schema}}.tasks (
-        id,
-        queue,
-        data,
-        retryLimit,
-        retryDelay,
-        retryBackoff,
-        singleton_key,
-        startAfter,
-        expireIn,
-        keepUntil
-      )
-      SELECT
-        gen_random_uuid() as id,
-        queue,
-        data,
-        "retryLimit",
-        "retryDelay",
-        "retryBackoff",
-        "singletonKey" as singleton_key,
-        (now() + ("startAfterSeconds" * interval '1s'))::timestamptz as startAfter,
-        "expireInSeconds" * interval '1s' as expireIn,
-        (now() + ("startAfterSeconds" * interval '1s') + ("keepInSeconds" * interval '1s'))::timestamptz as keepUntil
-      FROM json_to_recordset(${JSON.stringify(tasks)}) as x(
-        queue text,
-        data jsonb,
-        "retryLimit" integer,
-        "retryDelay" integer,
-        "retryBackoff" boolean,
-        "startAfterSeconds" integer,
-        "expireInSeconds" integer,
-        "keepInSeconds" integer,
-        "singletonKey" text
-      )
-      ON CONFLICT DO NOTHING
-    `;
+    return sql<{}>`SELECT {{schema}}.create_bus_tasks(${JSON.stringify(tasks)}::jsonb)`;
   }
 
   function createEvents(events: Event[]) {
-    return sql`
-      INSERT INTO {{schema}}.events (
-        event_name,
-        event_data
-      ) 
-      SELECT
-        event_name,
-        data as event_data
-      FROM json_to_recordset(${JSON.stringify(events)}) as x(
-        event_name text,
-        data jsonb
-      )
-    `;
+    return sql`SELECT {{schema}}.create_bus_events(${JSON.stringify(events)}::jsonb)`;
   }
 
   return {
