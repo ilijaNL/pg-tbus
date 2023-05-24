@@ -1,5 +1,13 @@
 # pg-tbus
 
+## 0.1.4
+
+### Patch Changes
+
+- a6d83f6: Singleton task per queue
+- d8ac5ec: Add refill impl for task workers to reduce latency
+- 13d9c38: Get serializable state of tbus
+
 ## 0.1.3
 
 ### Patch Changes
