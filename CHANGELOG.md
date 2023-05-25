@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.1.5
+
+### Patch Changes
+
+- Ability to declare task and use it in definitions
+
 ## 0.1.4
 
 ### Patch Changes

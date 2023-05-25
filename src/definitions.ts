@@ -89,13 +89,29 @@ export interface EventHandler<TName extends string, T extends TSchema> {
   config: Partial<TaskConfig> | ((input: Static<T>) => Partial<TaskConfig>);
 }
 
-export interface TaskDefinition<T extends TSchema> {
+export interface DeclareTaskProps<T extends TSchema> {
+  /**
+   * Task name
+   */
   task_name: string;
+  /**
+   * Task payload schema
+   */
   schema: T;
-  config: Partial<TaskConfig>;
+  /**
+   * Default task configuration. Can be (partially) override when creating the task
+   */
+  config?: Partial<TaskConfig>;
+}
+
+export interface TaskDeclaration<T extends TSchema> extends DeclareTaskProps<T> {
   validate: ValidateFunction<Static<T, []>>;
-  handler: TaskHandler<Static<T>>;
   from: (input: Static<T>, config?: Partial<TaskConfig>) => Task<Static<T>>;
+}
+
+export interface TaskDefinition<T extends TSchema> extends TaskDeclaration<T> {
+  handler: TaskHandler<Static<T>>;
+  config: Partial<TaskConfig>;
 }
 
 export interface Task<Data = {}> {
@@ -149,30 +165,10 @@ export type TaskConfig = {
   singletonKey: string | null;
 };
 
-/**
- * Define a standalone task.
- */
-export const defineTask = <T extends TSchema>(props: {
-  /**
-   * Task name
-   */
-  task_name: string;
-  /**
-   * Task payload schema
-   */
-  schema: T;
-  /**
-   * Task handler
-   */
-  handler: TaskHandler<Static<T>>;
-  /**
-   * Task configuration
-   */
-  config?: Partial<TaskConfig>;
-}): TaskDefinition<T> => {
+export const declareTask = <T extends TSchema>(props: DeclareTaskProps<T>): TaskDeclaration<T> => {
   const validateFn = createValidateFn(props.schema);
 
-  const from: TaskDefinition<T>['from'] = function from(input, config) {
+  const from: TaskDeclaration<T>['from'] = function from(input, config) {
     if (!validateFn(input)) {
       throw new Error(
         `invalid input for task ${props.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
@@ -189,8 +185,36 @@ export const defineTask = <T extends TSchema>(props: {
     schema: props.schema,
     task_name: props.task_name,
     validate: validateFn,
-    handler: props.handler,
     from,
+    // specifiy some defaults
+    config: props.config ?? {},
+  };
+};
+
+/**
+ * Define a standalone task.
+ */
+export const defineTask = <T extends TSchema>(
+  props: (DeclareTaskProps<T> | TaskDeclaration<T>) & {
+    handler: TaskHandler<Static<T>>;
+  }
+): TaskDefinition<T> => {
+  if ('from' in props) {
+    return {
+      ...props,
+      handler: props.handler,
+      config: props.config ?? {},
+    };
+  }
+
+  const decl = declareTask(props);
+
+  return {
+    schema: props.schema,
+    task_name: props.task_name,
+    validate: decl.validate,
+    handler: props.handler,
+    from: decl.from,
     // specifiy some defaults
     config: props.config ?? {},
   };

@@ -44,21 +44,21 @@ export function createSql(schema: string) {
   };
 }
 
-export function combineSQL(f: ReadonlyArray<string>, ...parameters: QueryCommand<any>[]) {
-  const sqlFragments = [f[0] ?? ''];
+// export function combineSQL(f: ReadonlyArray<string>, ...parameters: QueryCommand<any>[]) {
+//   const sqlFragments = [f[0] ?? ''];
 
-  for (let i = 0; i < f.length - 1; ++i) {
-    sqlFragments[sqlFragments.length - 1] += parameters[i]?.frags[0] ?? '';
-    sqlFragments.push(...(parameters[i]?.frags ?? []).slice(1));
-    sqlFragments[sqlFragments.length - 1] += f[i + 1] ?? '';
-  }
+//   for (let i = 0; i < f.length - 1; ++i) {
+//     sqlFragments[sqlFragments.length - 1] += parameters[i]?.frags[0] ?? '';
+//     sqlFragments.push(...(parameters[i]?.frags ?? []).slice(1));
+//     sqlFragments[sqlFragments.length - 1] += f[i + 1] ?? '';
+//   }
 
-  const values = [...parameters.flatMap((c) => c.values)];
-  return {
-    sqlFragments: sqlFragments,
-    parameters: values,
-  };
-}
+//   const values = [...parameters.flatMap((c) => c.values)];
+//   return {
+//     sqlFragments: sqlFragments,
+//     parameters: values,
+//   };
+// }
 
 export async function query<Result extends QueryResultRow>(client: PGClient, command: QueryCommand<Result>) {
   return client
