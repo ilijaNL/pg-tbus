@@ -95,6 +95,11 @@ export interface DeclareTaskProps<T extends TSchema> {
    */
   task_name: string;
   /**
+   * Queue this task belongs to.
+   * If not specified, the queue will be set to service when task is send from a tbus instance.
+   */
+  queue?: string;
+  /**
    * Task payload schema
    */
   schema: T;

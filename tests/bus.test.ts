@@ -129,6 +129,27 @@ tap.test('bus', async (tap) => {
     );
   });
 
+  tap.test('throws when task with different queue is registered', async (t) => {
+    const bus = createTBus('svc', { db: sqlPool, schema: schema });
+
+    const validTask = defineTask({
+      task_name: 'task_abc',
+      queue: 'svc',
+      schema: Type.Object({ works: Type.String() }),
+      handler: async () => {},
+    });
+
+    const throwTask = defineTask({
+      task_name: 'task_abc',
+      queue: 'queuea',
+      schema: Type.Object({ works: Type.String() }),
+      handler: async () => {},
+    });
+
+    t.doesNotThrow(() => bus.registerTask(validTask));
+    t.throws(() => bus.registerTask(throwTask));
+  });
+
   tap.test('throws when same task is registered', async ({ throws }) => {
     const bus = createTBus('svc', { db: sqlPool, schema: schema });
     const taskDef1 = defineTask({

@@ -122,7 +122,7 @@ export type Bus = {
 
 /**
  * Create a pg-tbus instance.
- * `serviceName` should be unique for the service.
+ * `serviceName` should be unique for the service and is used as the queue name.
  * Using the same `serviceName` with multiple instance will distribute work across instances.
  */
 export const createTBus = (serviceName: string, configuration: TBusConfiguration): Bus => {
@@ -236,6 +236,12 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     definitions.forEach((definition) => {
       if (taskHandlersMap.has(definition.task_name)) {
         throw new Error(`task ${definition.task_name} already registered`);
+      }
+
+      if (definition.queue && definition.queue !== serviceName) {
+        throw new Error(
+          `task ${definition.task_name} belongs to a different queue. Expected ${serviceName}, got ${definition.queue}`
+        );
       }
 
       taskHandlersMap.set(definition.task_name, {
