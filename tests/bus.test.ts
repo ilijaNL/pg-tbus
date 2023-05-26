@@ -62,6 +62,50 @@ tap.test('bus', async (tap) => {
     await waitProm;
   });
 
+  tap.test('emit task from declaration', async ({ teardown, equal, same }) => {
+    const ee = new EventEmitter();
+    const queue = 'emit_queue';
+    const bus = createTBus(queue, { db: sqlPool, schema: schema });
+    const task_name = 'emit_task';
+    const declaredTask = declareTask({
+      task_name: task_name,
+      schema: Type.Object({ works: Type.String() }),
+      queue: queue,
+      config: {
+        keepInSeconds: 120,
+      },
+    });
+
+    equal(declaredTask.queue, queue);
+    equal(declaredTask.task_name, task_name);
+
+    const taskDef = defineTask({
+      ...declaredTask,
+      handler: async (props) => {
+        equal(props.input.works, 'abcd');
+        equal(props.trigger.type, 'direct');
+        ee.emit('handled');
+      },
+    });
+
+    equal(taskDef.queue, declaredTask.queue);
+    equal(taskDef.task_name, declaredTask.task_name);
+    equal(taskDef.config, declaredTask.config);
+    equal(taskDef.config.keepInSeconds, 120);
+
+    bus.registerTask(taskDef);
+
+    await bus.start();
+
+    teardown(() => bus.stop());
+
+    const waitProm = once(ee, 'handled');
+
+    await bus.send(taskDef.from({ works: 'abcd' }));
+
+    await waitProm;
+  });
+
   tap.test('emit task to different queue', async ({ teardown, equal }) => {
     const ee = new EventEmitter();
     const bus = createTBus('emit_queue', { db: sqlPool, schema: schema });

@@ -171,31 +171,30 @@ export type TaskConfig = {
   singletonKey: string | null;
 };
 
-export const declareTask = <T extends TSchema>(props: DeclareTaskProps<T>): TaskDeclaration<T> => {
-  const validateFn = createValidateFn(props.schema);
+export const declareTask = <T extends TSchema>(decl: DeclareTaskProps<T>): TaskDeclaration<T> => {
+  const validateFn = createValidateFn(decl.schema);
 
   const from: TaskDeclaration<T>['from'] = function from(input, config) {
     if (!validateFn(input)) {
       throw new Error(
-        `invalid input for task ${props.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
+        `invalid input for task ${decl.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
       );
     }
 
     return {
-      queue: props.queue,
-      task_name: props.task_name,
+      queue: decl.queue,
+      task_name: decl.task_name,
       data: input,
-      config: { ...props.config, ...config },
+      config: { ...decl.config, ...config },
     };
   };
 
   return {
-    schema: props.schema,
-    task_name: props.task_name,
+    ...decl,
     validate: validateFn,
     from,
     // specifiy some defaults
-    config: props.config ?? {},
+    config: decl.config ?? {},
   };
 };
 
@@ -207,6 +206,7 @@ export const defineTask = <T extends TSchema>(
     handler: TaskHandler<Static<T>>;
   }
 ): TaskDefinition<T> => {
+  // is declarated
   if ('from' in props) {
     return {
       ...props,
@@ -218,11 +218,8 @@ export const defineTask = <T extends TSchema>(
   const decl = declareTask(props);
 
   return {
-    schema: props.schema,
-    task_name: props.task_name,
-    validate: decl.validate,
+    ...decl,
     handler: props.handler,
-    from: decl.from,
     // specifiy some defaults
     config: props.config ?? {},
   };
@@ -233,7 +230,7 @@ export const defineTask = <T extends TSchema>(
  */
 export const createEventHandler = <TName extends string, T extends TSchema>(props: {
   /**
-   * Task queue name. Should be unique per pg-tbus instance
+   * Task name. Should be unique per pg-tbus instance
    */
   task_name: string;
   /**
