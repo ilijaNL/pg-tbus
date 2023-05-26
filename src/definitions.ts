@@ -121,6 +121,7 @@ export interface TaskDefinition<T extends TSchema> extends TaskDeclaration<T> {
 
 export interface Task<Data = {}> {
   task_name: string;
+  queue?: string;
   data: Data;
   config: Partial<TaskConfig>;
 }
@@ -179,9 +180,11 @@ export const declareTask = <T extends TSchema>(props: DeclareTaskProps<T>): Task
         `invalid input for task ${props.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
       );
     }
+
     return {
-      data: input,
+      queue: props.queue,
       task_name: props.task_name,
+      data: input,
       config: { ...props.config, ...config },
     };
   };

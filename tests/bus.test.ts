@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
 import tap from 'tap';
-import { createEventHandler, createTBus, defineEvent, defineTask } from '../src';
+import { createEventHandler, createTBus, declareTask, defineEvent, defineTask } from '../src';
 import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
 import stringify from 'safe-stable-stringify';
@@ -59,6 +59,35 @@ tap.test('bus', async (tap) => {
 
     await bus.send([taskDef.from({ works: 'abcd' }), taskDef.from({ works: 'abcd' })]);
 
+    await waitProm;
+  });
+
+  tap.test('emit task to different queue', async ({ teardown, equal }) => {
+    const ee = new EventEmitter();
+    const bus = createTBus('emit_queue', { db: sqlPool, schema: schema });
+    const task_name = 'emit_task';
+
+    const taskDef = defineTask({
+      task_name: task_name,
+      queue: 'abc',
+      schema: Type.Object({ works: Type.String() }),
+      handler: async (props) => {
+        equal(props.input.works, 'abcd');
+        equal(props.trigger.type, 'direct');
+        ee.emit('handled');
+      },
+    });
+
+    const waitProm = once(ee, 'handled');
+
+    const bus2 = createTBus('abc', { db: sqlPool, schema: schema });
+
+    bus2.registerTask(taskDef);
+    await bus2.start();
+
+    teardown(() => bus2.stop());
+
+    await bus.send(taskDef.from({ works: 'abcd' }));
     await waitProm;
   });
 

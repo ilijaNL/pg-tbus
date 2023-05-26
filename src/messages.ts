@@ -127,7 +127,7 @@ export const createTaskFactory =
         tn: task.task_name,
         trace: trigger,
       },
-      queue: props.queue,
+      queue: task.queue ?? props.queue,
       ...config,
     };
   };

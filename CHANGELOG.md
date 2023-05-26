@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.1.7
+
+### Patch Changes
+
+- Allow to emit tasks to different queues
+
 ## 0.1.6
 
 ### Patch Changes
