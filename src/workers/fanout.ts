@@ -2,26 +2,25 @@ import { Pool } from 'pg';
 import { createSql, query, withTransaction } from '../sql';
 import { createBaseWorker } from './base';
 import { EventHandler } from '../definitions';
-import { createMessagePlans, InsertTask, TaskFactory } from '../messages';
+import { InsertTask, TaskFactory } from '../messages';
 
 type _Event = { id: string; event_name: string; event_data: any; position: string };
 
 const createPlans = (schema: string) => {
   const sql = createSql(schema);
-  const taskSql = createMessagePlans(schema);
 
-  function createTasks(tasks: InsertTask[]) {
-    return taskSql.createTasks(tasks);
-  }
-
-  function updateServiceCursor(service_name: string, last_position: number) {
+  // combine into single query (CTE) to reduce round trips
+  function createTasksAndSetCursor(tasks: InsertTask[], last_position: number, service_name: string) {
     return sql`
-      UPDATE {{schema}}.cursors 
-      SET l_p = ${last_position} 
-      WHERE svc = ${service_name}
+      with _cu as (
+        UPDATE {{schema}}.cursors 
+        SET l_p = ${last_position} 
+        WHERE svc = ${service_name}
+      ) SELECT {{schema}}.create_bus_tasks(${JSON.stringify(tasks)}::jsonb)
     `;
   }
 
+  // the pos > 0 is needed to have an index scan on events table
   function getCursorLockEvents(service_name: string, options: { limit: number }) {
     const events = sql<_Event>`
       SELECT 
@@ -30,7 +29,6 @@ const createPlans = (schema: string) => {
         event_data,
         pos as position
       FROM {{schema}}.events
-      -- pos > 0 needed for index scan
       WHERE pos > 0 
       AND pos > (
         SELECT 
@@ -49,9 +47,7 @@ const createPlans = (schema: string) => {
 
   return {
     getCursorLockEvents,
-    // getEvents,
-    createTasks,
-    updateServiceCursor,
+    createTasksAndSetCursor,
   };
 };
 
@@ -112,8 +108,7 @@ export const createFanoutWorker = (props: {
         const newCursor = +events[events.length - 1]!.position;
         const tasks = events.map(eventToTasks).flat();
 
-        await query(client, plans.createTasks(tasks));
-        await query(client, plans.updateServiceCursor(props.serviceName, newCursor));
+        await query(client, plans.createTasksAndSetCursor(tasks, newCursor, props.serviceName));
 
         return {
           hasChanged: tasks.length > 0,

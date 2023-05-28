@@ -322,7 +322,8 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
      */
     publish: async (events: Event<string, any> | Event<string, any>[], client?: PGClient) => {
       const _events = Array.isArray(events) ? events : [events];
-      await query(client ?? pool, getPublishCommand(_events));
+      const pg: PGClient = client || pool;
+      await query(pg, getPublishCommand(_events));
 
       // check if instance is affected by the published events
       const allRegisteredEvents = Array.from(eventHandlersMap.values());
@@ -340,7 +341,8 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
      */
     send: async (tasks: Task | Task[], client?: PGClient) => {
       const _tasks = Array.isArray(tasks) ? tasks : [tasks];
-      await query(client ?? pool, getSendCommand(_tasks));
+      const pg: PGClient = client || pool;
+      await query(pg, getSendCommand(_tasks));
 
       // check if instance is affected by the new tasks
       const hasEffectToCurrentWorker = _tasks.some((t) => taskHandlersMap.has(t.task_name));

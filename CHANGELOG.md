@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 0.1.9
+
+### Patch Changes
+
+- Performance and sql caching
+
 ## 0.1.8
 
 ### Patch Changes

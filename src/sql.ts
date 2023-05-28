@@ -29,14 +29,24 @@ export type QueryCommand<Result> = {
  * Helper function to convert string literal to parameterized postgres query
  */
 export function createSql(schema: string) {
+  const cache = new WeakMap<ReadonlyArray<string>, string>();
+
   return function sql<Result extends QueryResultRow>(
     sqlFragments: ReadonlyArray<string>,
     ...parameters: unknown[]
   ): QueryCommand<Result> {
-    const text: string = sqlFragments.reduce((prev, curr, i) => prev + '$' + i + curr);
+    let text: string;
+    if (cache.has(sqlFragments)) {
+      text = cache.get(sqlFragments)!;
+    } else {
+      const reduced: string = sqlFragments.reduce((prev, curr, i) => prev + '$' + i + curr);
+      text = reduced.replace(schemaRE, schema);
+      cache.set(sqlFragments, text);
+    }
+
     const result = {
       frags: sqlFragments,
-      text: text.replace(schemaRE, schema),
+      text: text,
       values: parameters,
     };
 
@@ -70,7 +80,7 @@ export async function query<Result extends QueryResultRow>(client: PGClient, com
 }
 
 export async function withTransaction<T>(pool: Pool, handler: (client: PoolClient) => Promise<T>) {
-  const client = await pool.connect();
+  let client: PoolClient | null = await pool.connect();
   let result: T;
   try {
     await client.query('BEGIN');
@@ -81,6 +91,7 @@ export async function withTransaction<T>(pool: Pool, handler: (client: PoolClien
     throw e;
   } finally {
     client.release();
+    client = null;
   }
 
   return result;
