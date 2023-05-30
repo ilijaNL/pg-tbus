@@ -127,7 +127,7 @@ export type Bus = {
  */
 export const createTBus = (serviceName: string, configuration: TBusConfiguration): Bus => {
   // K: task_name, should be unique
-  const eventHandlersMap = new Map<TaskName, EventHandler<string, TSchema>>();
+  const eventHandlers: Array<EventHandler<string, TSchema>> = [];
   const taskHandlersMap = new Map<TaskName, TaskState & { handler: TaskHandler<any> }>();
   const { schema, db, worker } = configuration;
 
@@ -197,7 +197,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     schema: configuration.schema,
     serviceName: serviceName,
     pool,
-    getEventHandlers: () => Array.from(eventHandlersMap.values()),
+    getEventHandlers: () => eventHandlers,
     taskFactory: toTask,
     onNewTasks() {
       notifyWorker();
@@ -207,14 +207,14 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
   const maintainceWorker = createMaintainceWorker({ client: pool, retentionInDays: 30, schema: schema });
 
   const notifyFanout = debounce(() => fanoutWorker.notify(), { ms: 75, maxMs: 300 });
-  const notifyWorker = debounce(() => tWorker.notify(), { maxMs: 300, ms: 75 });
+  const notifyWorker = debounce(() => tWorker.notify(), { ms: 75, maxMs: 150 });
 
   /**
    * Register one or more event handlers
    */
   function registerHandler(...handlers: EventHandler<string, any>[]) {
     handlers.forEach((handler) => {
-      if (eventHandlersMap.has(handler.task_name)) {
+      if (eventHandlers.some((h) => h.task_name === handler.task_name)) {
         throw new Error(`task ${handler.task_name} already registered`);
       }
 
@@ -225,7 +225,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
         on_event: handler.def.event_name,
         config: typeof handler.config === 'function' ? {} : handler.config,
       });
-      eventHandlersMap.set(handler.task_name, handler);
+      eventHandlers.push(handler);
     });
   }
 
@@ -291,7 +291,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
    * Get the current state of all registered events, eventhandlers and taskhandlers
    */
   function getState(): BusState {
-    const events: BusState['events'] = Array.from(eventHandlersMap.values()).map((eh) => ({
+    const events: BusState['events'] = eventHandlers.map((eh) => ({
       event_name: eh.def.event_name,
       schema: eh.def.schema,
     }));
@@ -326,9 +326,8 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
       await query(pg, getPublishCommand(_events));
 
       // check if instance is affected by the published events
-      const allRegisteredEvents = Array.from(eventHandlersMap.values());
       const hasEffectToCurrentWorker = _events.some((e) =>
-        allRegisteredEvents.some((ee) => ee.def.event_name === e.event_name)
+        eventHandlers.some((ee) => ee.def.event_name === e.event_name)
       );
       if (hasEffectToCurrentWorker) {
         notifyFanout();

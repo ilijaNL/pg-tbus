@@ -371,7 +371,7 @@ tap.test('task worker', async (t) => {
 
     const insertTask = taskFactory(task, { type: 'direct' });
 
-    t.equal(insertTask.retryLimit, 1);
+    t.equal(insertTask.r_l, 1);
 
     await query(sqlPool, plans.createTasks([insertTask]));
 
@@ -532,8 +532,8 @@ tap.test('maintaince worker', async (t) => {
       { type: 'direct' }
     );
 
-    t.equal(insertTask.keepInSeconds, 0);
-    t.equal(insertTask.startAfterSeconds, 0);
+    t.equal(insertTask.kis, 0);
+    t.equal(insertTask.saf, 0);
 
     await query(sqlPool, plans.createTasks([insertTask]));
     // mark the task as started
