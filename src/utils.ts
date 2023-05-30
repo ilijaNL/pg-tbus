@@ -28,6 +28,7 @@ export const debounce = <Args extends any[], F extends (...args: Args) => any>(
     }
 
     timeoutId = setTimeout(invoke, opts.ms);
+    // need to reset every time otherwise it wont use the latest this & args in invoke
     maxTimeoutId = setTimeout(invoke, Math.max(0, opts.maxMs - (Date.now() - startedTime)));
   };
 };

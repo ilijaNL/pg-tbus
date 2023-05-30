@@ -13,12 +13,52 @@ export const TASK_STATES = {
   failed: 6,
 } as const;
 
+export type TaskState = typeof TASK_STATES;
+
 export type TaskDTO<T> = { tn: string; data: T; trace: TaskTrigger };
 
 export type InsertTask<T = object> = {
-  queue: string;
-  data: TaskDTO<T>;
-} & TaskConfig;
+  /**
+   * Queue
+   */
+  q: string;
+  /**
+   * Data
+   */
+  d: TaskDTO<T>;
+  /**
+   * Task state
+   */
+  s?: TaskState;
+  /**
+   * Retry limit
+   */
+  r_l: number;
+  /**
+   * Retry delay
+   */
+  r_d: number;
+  /**
+   * Retry backoff
+   */
+  r_b: boolean;
+  /**
+   * Start after seconds
+   */
+  saf: number;
+  /**
+   * Expire in seconds
+   */
+  eis: number;
+  /**
+   * Keep until in seconds
+   */
+  kis: number;
+  /**
+   * Singleton key
+   */
+  skey: string | null;
+};
 
 export type SelectTask<T = object> = {
   id: string;
@@ -122,12 +162,18 @@ export const createTaskFactory =
     };
 
     return {
-      data: {
+      d: {
         data: task.data,
         tn: task.task_name,
         trace: trigger,
       },
-      queue: task.queue ?? props.queue,
-      ...config,
+      q: task.queue ?? props.queue,
+      eis: config.expireInSeconds,
+      kis: config.keepInSeconds,
+      r_b: config.retryBackoff,
+      r_d: config.retryDelay,
+      r_l: config.retryLimit,
+      saf: config.startAfterSeconds,
+      skey: config.singletonKey,
     };
   };
