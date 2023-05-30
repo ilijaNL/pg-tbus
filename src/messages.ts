@@ -13,7 +13,7 @@ export const TASK_STATES = {
   failed: 6,
 } as const;
 
-export type TaskState = typeof TASK_STATES;
+export type TaskState = (typeof TASK_STATES)[keyof typeof TASK_STATES];
 
 export type TaskDTO<T> = { tn: string; data: T; trace: TaskTrigger };
 
