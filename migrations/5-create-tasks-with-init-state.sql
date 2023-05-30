@@ -43,22 +43,3 @@ BEGIN
   RETURN;
 END;
 $$ LANGUAGE 'plpgsql' VOLATILE;
-
-CREATE OR REPLACE FUNCTION {{schema}}.create_bus_events(events jsonb)
-	RETURNS SETOF {{schema}}.events
-  AS $$
-BEGIN
-  INSERT INTO {{schema}}.events (
-    event_name,
-    event_data
-  ) 
-  SELECT
-    event_name,
-    data as event_data
-  FROM jsonb_to_recordset(events) as x(
-    event_name text,
-    data jsonb
-  );
-  RETURN;
-END;
-$$ LANGUAGE 'plpgsql' VOLATILE;
