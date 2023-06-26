@@ -4,7 +4,7 @@ import path from 'path';
 import { Pool } from 'pg';
 import { EventEmitter } from 'stream';
 import tap from 'tap';
-import { PGClient, defineTask, query } from '../src';
+import { PGClient, createTaskHandler, defineTask, query } from '../src';
 import { createMessagePlans, createTaskFactory, SelectTask, TASK_STATES } from '../src/messages';
 import { migrate } from '../src/migrations';
 import { createBaseWorker } from '../src/workers/base';
@@ -157,16 +157,18 @@ tap.test('task worker', async (t) => {
 
     // start stop
     const plans = createMessagePlans(schema);
-    const simpleTask = defineTask({
-      schema: Type.Object({}),
-      task_name: 'happy-task',
-      config: {
-        expireInSeconds: 10,
-        keepInSeconds: 10,
-        retryBackoff: false,
-        retryLimit: 1,
-        retryDelay: 1,
-      },
+    const simpleTask = createTaskHandler({
+      taskDef: defineTask({
+        schema: Type.Object({}),
+        task_name: 'happy-task',
+        config: {
+          expireInSeconds: 10,
+          keepInSeconds: 10,
+          retryBackoff: false,
+          retryLimit: 1,
+          retryDelay: 1,
+        },
+      }),
       handler: async () => {},
     });
     const task = simpleTask.from({});
@@ -354,16 +356,18 @@ tap.test('task worker', async (t) => {
 
     // start stop
     const plans = createMessagePlans(schema);
-    const simpleTask = defineTask({
-      schema: Type.Object({}),
-      task_name: 'task',
-      config: {
-        expireInSeconds: 10,
-        keepInSeconds: 10,
-        retryBackoff: false,
-        retryLimit: 1,
-        retryDelay: 1,
-      },
+    const simpleTask = createTaskHandler({
+      taskDef: defineTask({
+        schema: Type.Object({}),
+        task_name: 'task',
+        config: {
+          expireInSeconds: 10,
+          keepInSeconds: 10,
+          retryBackoff: false,
+          retryLimit: 1,
+          retryDelay: 1,
+        },
+      }),
       handler: async () => {},
     });
     const task = simpleTask.from({});

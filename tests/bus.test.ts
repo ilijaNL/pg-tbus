@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
 import tap from 'tap';
-import { createEventHandler, createTBus, declareTask, defineEvent, defineTask } from '../src';
+import { createEventHandler, createTBus, defineEvent, createTaskHandler, defineTask } from '../src';
 import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
 import stringify from 'safe-stable-stringify';
@@ -39,9 +39,11 @@ tap.test('bus', async (tap) => {
     const queue = 'emit_queue';
     const bus = createTBus(queue, { db: sqlPool, schema: schema });
     const task_name = 'emit_task';
-    const taskDef = defineTask({
-      task_name: task_name,
-      schema: Type.Object({ works: Type.String() }),
+    const taskDef = createTaskHandler({
+      taskDef: defineTask({
+        task_name: task_name,
+        schema: Type.Object({ works: Type.String() }),
+      }),
       handler: async (props) => {
         equal(props.input.works, 'abcd');
         equal(props.trigger.type, 'direct');
@@ -67,7 +69,7 @@ tap.test('bus', async (tap) => {
     const queue = 'emit_queue';
     const bus = createTBus(queue, { db: sqlPool, schema: schema });
     const task_name = 'emit_task';
-    const declaredTask = declareTask({
+    const definedTask = defineTask({
       task_name: task_name,
       schema: Type.Object({ works: Type.String() }),
       queue: queue,
@@ -76,11 +78,11 @@ tap.test('bus', async (tap) => {
       },
     });
 
-    equal(declaredTask.queue, queue);
-    equal(declaredTask.task_name, task_name);
+    equal(definedTask.queue, queue);
+    equal(definedTask.task_name, task_name);
 
-    const taskDef = defineTask({
-      ...declaredTask,
+    const taskDef = createTaskHandler({
+      taskDef: definedTask,
       handler: async (props) => {
         equal(props.input.works, 'abcd');
         equal(props.trigger.type, 'direct');
@@ -88,9 +90,9 @@ tap.test('bus', async (tap) => {
       },
     });
 
-    equal(taskDef.queue, declaredTask.queue);
-    equal(taskDef.task_name, declaredTask.task_name);
-    equal(taskDef.config, declaredTask.config);
+    equal(taskDef.queue, definedTask.queue);
+    equal(taskDef.task_name, definedTask.task_name);
+    equal(taskDef.config, definedTask.config);
     equal(taskDef.config.keepInSeconds, 120);
 
     bus.registerTask(taskDef);
@@ -111,10 +113,12 @@ tap.test('bus', async (tap) => {
     const bus = createTBus('emit_queue', { db: sqlPool, schema: schema });
     const task_name = 'emit_task';
 
-    const taskDef = defineTask({
-      task_name: task_name,
-      queue: 'abc',
-      schema: Type.Object({ works: Type.String() }),
+    const taskDef = createTaskHandler({
+      taskDef: defineTask({
+        task_name: task_name,
+        queue: 'abc',
+        schema: Type.Object({ works: Type.String() }),
+      }),
       handler: async (props) => {
         equal(props.input.works, 'abcd');
         equal(props.trigger.type, 'direct');
@@ -205,17 +209,21 @@ tap.test('bus', async (tap) => {
   tap.test('throws when task with different queue is registered', async (t) => {
     const bus = createTBus('svc', { db: sqlPool, schema: schema });
 
-    const validTask = defineTask({
-      task_name: 'task_abc',
-      queue: 'svc',
-      schema: Type.Object({ works: Type.String() }),
+    const validTask = createTaskHandler({
+      taskDef: defineTask({
+        task_name: 'task_abc',
+        queue: 'svc',
+        schema: Type.Object({ works: Type.String() }),
+      }),
       handler: async () => {},
     });
 
-    const throwTask = defineTask({
-      task_name: 'task_abc',
-      queue: 'queuea',
-      schema: Type.Object({ works: Type.String() }),
+    const throwTask = createTaskHandler({
+      taskDef: defineTask({
+        task_name: 'task_abc',
+        queue: 'queuea',
+        schema: Type.Object({ works: Type.String() }),
+      }),
       handler: async () => {},
     });
 
@@ -225,14 +233,19 @@ tap.test('bus', async (tap) => {
 
   tap.test('throws when same task is registered', async ({ throws }) => {
     const bus = createTBus('svc', { db: sqlPool, schema: schema });
-    const taskDef1 = defineTask({
-      task_name: 'task_abc',
-      schema: Type.Object({ works: Type.String() }),
+    const taskDef1 = createTaskHandler({
+      taskDef: defineTask({
+        task_name: 'task_abc',
+        schema: Type.Object({ works: Type.String() }),
+      }),
+
       handler: async (props) => {},
     });
-    const taskDef2 = defineTask({
-      task_name: 'task_abc',
-      schema: Type.Object({ abc: Type.String() }),
+    const taskDef2 = createTaskHandler({
+      taskDef: defineTask({
+        task_name: 'task_abc',
+        schema: Type.Object({ abc: Type.String() }),
+      }),
       handler: async (props) => {},
     });
 
@@ -266,17 +279,19 @@ tap.test('bus', async (tap) => {
     const queue = `task_options`;
 
     const bus = createTBus(queue, { db: sqlPool, schema: schema });
-    const taskDef = defineTask({
-      task_name: 'options_task',
-      schema: Type.Object({ works: Type.String() }),
-      config: {
-        expireInSeconds: 5,
-        retryBackoff: true,
-        retryDelay: 45,
-        retryLimit: 4,
-        startAfterSeconds: 45,
-        keepInSeconds: 6000,
-      },
+    const taskDef = createTaskHandler({
+      taskDef: defineTask({
+        task_name: 'options_task',
+        schema: Type.Object({ works: Type.String() }),
+        config: {
+          expireInSeconds: 5,
+          retryBackoff: true,
+          retryDelay: 45,
+          retryLimit: 4,
+          startAfterSeconds: 45,
+          keepInSeconds: 6000,
+        },
+      }),
       handler: async () => {},
     });
 
@@ -410,17 +425,19 @@ tap.test('bus', async (tap) => {
     const queue = `singleton_task`;
     const bus = createTBus(queue, { db: sqlPool, schema: schema });
     const taskName = 'singleton_task';
-    const taskDef = defineTask({
-      task_name: taskName,
-      schema: Type.Object({ works: Type.String() }),
-      config: {
-        expireInSeconds: 5,
-        retryBackoff: true,
-        retryDelay: 45,
-        retryLimit: 4,
-        startAfterSeconds: 45,
-        keepInSeconds: 6000,
-      },
+    const taskDef = createTaskHandler({
+      taskDef: defineTask({
+        task_name: taskName,
+        schema: Type.Object({ works: Type.String() }),
+        config: {
+          expireInSeconds: 5,
+          retryBackoff: true,
+          retryDelay: 45,
+          retryLimit: 4,
+          startAfterSeconds: 45,
+          keepInSeconds: 6000,
+        },
+      }),
       handler: async () => {},
     });
 
@@ -586,15 +603,19 @@ tap.test('getState', async (t) => {
     schema: 'schema',
   });
 
-  const taskA = defineTask({
-    task_name: 'task_a',
-    schema: Type.Object({ works: Type.String() }),
+  const taskA = createTaskHandler({
+    taskDef: defineTask({
+      task_name: 'task_a',
+      schema: Type.Object({ works: Type.String() }),
+    }),
     handler: async (props) => {},
   });
 
-  const taskB = defineTask({
-    task_name: 'task_b',
-    schema: Type.Object({ works: Type.String() }),
+  const taskB = createTaskHandler({
+    taskDef: defineTask({
+      task_name: 'task_b',
+      schema: Type.Object({ works: Type.String() }),
+    }),
     handler: async (props) => {},
   });
 
