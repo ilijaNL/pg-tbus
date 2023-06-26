@@ -5,6 +5,10 @@ import { createValidateFn } from './schema';
 export interface Event<Name = string, Data = {}> {
   event_name: Name;
   data: Data;
+  /**
+   * Defaults to 30 days
+   */
+  retention_in_days?: number;
 }
 
 export type TaskTrigger =
@@ -63,7 +67,7 @@ export const defineEvent = <TName extends string, T extends TSchema>(
   const { event_name, schema } = spec;
   const validate = createValidateFn(schema);
 
-  function from(input: Static<T>): Event<TName, Static<T>> {
+  function from(input: Static<T>, opts?: Partial<{ retention_in_days: number }>): Event<TName, Static<T>> {
     const validateFn = validate;
     if (!validateFn(input)) {
       throw new Error(`invalid input for event ${event_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`);
@@ -71,6 +75,7 @@ export const defineEvent = <TName extends string, T extends TSchema>(
     return {
       data: input,
       event_name: event_name,
+      retention_in_days: opts?.retention_in_days,
     };
   }
 

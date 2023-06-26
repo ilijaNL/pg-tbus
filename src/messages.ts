@@ -15,6 +15,22 @@ export const TASK_STATES = {
 
 export type TaskState = (typeof TASK_STATES)[keyof typeof TASK_STATES];
 
+export type InsertEvent = {
+  /**
+   * Event name
+   */
+  e_n: string;
+  /**
+   * Data
+   */
+  d: Record<string, any>;
+  /**
+   * Retention in days.
+   * Defaults to 30 days
+   */
+  rid?: number;
+};
+
 export type TaskDTO<T> = { tn: string; data: T; trace: TaskTrigger };
 
 export type InsertTask<T = object> = {
@@ -77,7 +93,7 @@ export const createMessagePlans = (schema: string) => {
     return sql<{}>`SELECT {{schema}}.create_bus_tasks(${JSON.stringify(tasks)}::jsonb)`;
   }
 
-  function createEvents(events: Event[]) {
+  function createEvents(events: InsertEvent[]) {
     return sql`SELECT {{schema}}.create_bus_events(${JSON.stringify(events)}::jsonb)`;
   }
 

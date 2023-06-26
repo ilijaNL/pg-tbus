@@ -475,7 +475,6 @@ tap.test('maintaince worker', async (t) => {
   t.test('expires', async (t) => {
     const worker = createMaintainceWorker({
       client: sqlPool,
-      retentionInDays: 30,
       schema,
       intervalInMs: 200,
     });
@@ -514,7 +513,6 @@ tap.test('maintaince worker', async (t) => {
   t.test('purges tasks', async (t) => {
     const worker = createMaintainceWorker({
       client: sqlPool,
-      retentionInDays: 30,
       schema,
       intervalInMs: 200,
     });
@@ -557,5 +555,38 @@ tap.test('maintaince worker', async (t) => {
 
     const r = await sqlPool.query(`SELECT * FROM ${schema}.tasks WHERE id = ${result.id}`);
     t.equal(r.rowCount, 0);
+  });
+
+  t.test('event retention', async (t) => {
+    const worker = createMaintainceWorker({
+      client: sqlPool,
+      schema,
+      intervalInMs: 200,
+    });
+
+    const plans = createMessagePlans(schema);
+
+    await query(
+      sqlPool,
+      plans.createEvents([
+        { d: {}, e_n: 'event_retention_123', rid: -1 },
+        { d: { exists: true }, e_n: 'event_retention_123' },
+        { d: { exists: true }, e_n: 'event_retention_123', rid: 3 },
+      ])
+    );
+    const r = await sqlPool.query(`SELECT * FROM ${schema}.events WHERE event_name = 'event_retention_123'`);
+    t.equal(r.rowCount, 3);
+    worker.start();
+    t.teardown(() => worker.stop());
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const r2 = await sqlPool.query(
+      `SELECT id, expire_at - now()::date as days, event_data FROM ${schema}.events WHERE event_name = 'event_retention_123' ORDER BY days desc`
+    );
+    t.equal(r2.rowCount, 2);
+    t.equal(r2.rows[0].event_data.exists, true);
+    // default retention
+    t.equal(r2.rows[0].days, 30);
+    t.equal(r2.rows[1].days, 3);
   });
 });

@@ -36,22 +36,17 @@ const createPlans = (schema: string) => {
       WHERE state >= ${TASK_STATES.completed} 
         AND keepUntil < now()
     `,
-    deleteOldEvents: (days: number) => sql`
-      DELETE FROM {{schema}}.events WHERE created_at < (now() - interval '1 day' * ${days})
+    deleteOldEvents: () => sql`
+      DELETE FROM {{schema}}.events WHERE expire_at < now()
     `,
   };
 };
 
-export const createMaintainceWorker = (props: {
-  schema: string;
-  client: PGClient;
-  retentionInDays: number;
-  intervalInMs?: number;
-}) => {
+export const createMaintainceWorker = (props: { schema: string; client: PGClient; intervalInMs?: number }) => {
   const plans = createPlans(props.schema);
   const worker = createBaseWorker(
     async () => {
-      await query(props.client, plans.deleteOldEvents(props.retentionInDays));
+      await query(props.client, plans.deleteOldEvents());
       await query(props.client, plans.purgeTasks());
       await query(props.client, plans.expireTasks());
     },
