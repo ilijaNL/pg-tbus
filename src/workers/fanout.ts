@@ -4,7 +4,15 @@ import { createBaseWorker } from './base';
 import { EventHandler } from '../definitions';
 import { InsertTask, TaskFactory } from '../messages';
 
-type _Event = { id: string; event_name: string; event_data: any; position: string };
+type _Event = {
+  /**
+   * Bigint
+   */
+  id: string;
+  event_name: string;
+  event_data: any;
+  position: string;
+};
 
 const createPlans = (schema: string) => {
   const sql = createSql(schema);
