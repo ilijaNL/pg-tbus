@@ -1,14 +1,5 @@
 import { TSchema } from '@sinclair/typebox';
-import {
-  EventHandler,
-  Event,
-  Task,
-  TaskHandler,
-  TaskDefinition,
-  TaskTrigger,
-  TaskConfig,
-  EventSpec,
-} from './definitions';
+import { EventHandler, Event, Task, TaskHandler, TaskTrigger, TaskConfig, EventSpec, Handler } from './definitions';
 import { query, PGClient, createSql, QueryCommand } from './sql';
 import { Pool, PoolConfig } from 'pg';
 import { migrate } from './migrations';
@@ -109,7 +100,7 @@ export type BusState = {
 };
 
 export type Bus = {
-  registerTask: (...definitions: TaskDefinition<any>[]) => void;
+  registerTask: (...definitions: TaskHandler<any>[]) => void;
   registerHandler: (...handlers: EventHandler<string, any>[]) => void;
   start: () => Promise<void>;
   getPublishCommand: (events: Event<string, any>[]) => QueryCommand<{}>;
@@ -128,7 +119,7 @@ export type Bus = {
 export const createTBus = (serviceName: string, configuration: TBusConfiguration): Bus => {
   // K: task_name, should be unique
   const eventHandlers: Array<EventHandler<string, TSchema>> = [];
-  const taskHandlersMap = new Map<TaskName, TaskState & { handler: TaskHandler<any> }>();
+  const taskHandlersMap = new Map<TaskName, TaskState & { handler: Handler<any> }>();
   const { schema, db, worker } = configuration;
 
   const state = {
@@ -232,7 +223,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
   /**
    * Register one or more task definitions + handlers
    */
-  function registerTask(...definitions: TaskDefinition<any>[]) {
+  function registerTask(...definitions: TaskHandler<any>[]) {
     definitions.forEach((definition) => {
       if (taskHandlersMap.has(definition.task_name)) {
         throw new Error(`task ${definition.task_name} already registered`);

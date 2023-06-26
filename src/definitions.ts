@@ -85,11 +85,11 @@ export const defineEvent = <TName extends string, T extends TSchema>(
 export interface EventHandler<TName extends string, T extends TSchema> {
   task_name: string;
   def: EventDefinition<TName, T>;
-  handler: TaskHandler<Static<T>>;
+  handler: Handler<Static<T>>;
   config: Partial<TaskConfig> | ((input: Static<T>) => Partial<TaskConfig>);
 }
 
-export interface DeclareTaskProps<T extends TSchema> {
+export interface DefineTaskProps<T extends TSchema> {
   /**
    * Task name
    */
@@ -109,13 +109,13 @@ export interface DeclareTaskProps<T extends TSchema> {
   config?: Partial<TaskConfig>;
 }
 
-export interface TaskDeclaration<T extends TSchema> extends DeclareTaskProps<T> {
+export interface TaskDefinition<T extends TSchema> extends DefineTaskProps<T> {
   validate: ValidateFunction<Static<T, []>>;
   from: (input: Static<T>, config?: Partial<TaskConfig>) => Task<Static<T>>;
 }
 
-export interface TaskDefinition<T extends TSchema> extends TaskDeclaration<T> {
-  handler: TaskHandler<Static<T>>;
+export interface TaskHandler<T extends TSchema> extends TaskDefinition<T> {
+  handler: Handler<Static<T>>;
   config: Partial<TaskConfig>;
 }
 
@@ -126,7 +126,7 @@ export interface Task<Data = {}> {
   config: Partial<TaskConfig>;
 }
 
-export interface TaskHandler<Input> {
+export interface Handler<Input> {
   (props: { name: string; input: Input; trigger: TaskTrigger }): Promise<any>;
 }
 
@@ -171,10 +171,10 @@ export type TaskConfig = {
   singletonKey: string | null;
 };
 
-export const declareTask = <T extends TSchema>(decl: DeclareTaskProps<T>): TaskDeclaration<T> => {
+export const defineTask = <T extends TSchema>(decl: DefineTaskProps<T>): TaskDefinition<T> => {
   const validateFn = createValidateFn(decl.schema);
 
-  const from: TaskDeclaration<T>['from'] = function from(input, config) {
+  const from: TaskDefinition<T>['from'] = function from(input, config) {
     if (!validateFn(input)) {
       throw new Error(
         `invalid input for task ${decl.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
@@ -198,30 +198,18 @@ export const declareTask = <T extends TSchema>(decl: DeclareTaskProps<T>): TaskD
   };
 };
 
-/**
- * Define a standalone task.
- */
-export const defineTask = <T extends TSchema>(
-  props: (DeclareTaskProps<T> | TaskDeclaration<T>) & {
-    handler: TaskHandler<Static<T>>;
-  }
-): TaskDefinition<T> => {
-  // is declarated
-  if ('from' in props) {
-    return {
-      ...props,
-      handler: props.handler,
-      config: props.config ?? {},
-    };
-  }
-
-  const decl = declareTask(props);
-
+export const createTaskHandler = <T extends TSchema>(props: {
+  taskDef: TaskDefinition<T>;
+  handler: Handler<Static<T>>;
+}): TaskHandler<T> => {
   return {
-    ...decl,
+    config: props.taskDef.config ?? {},
     handler: props.handler,
-    // specifiy some defaults
-    config: props.config ?? {},
+    from: props.taskDef.from,
+    schema: props.taskDef.schema,
+    task_name: props.taskDef.task_name,
+    validate: props.taskDef.validate,
+    queue: props.taskDef.queue,
   };
 };
 
@@ -240,7 +228,7 @@ export const createEventHandler = <TName extends string, T extends TSchema>(prop
   /**
    * Event handler
    */
-  handler: TaskHandler<Static<T>>;
+  handler: Handler<Static<T>>;
   /**
    * Event handler configuration. Can be static or a function
    */

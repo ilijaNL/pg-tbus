@@ -21,28 +21,64 @@ const account_created_event = defineEvent({
 
 ```typescript
 const bus = createTBus('my_service', { db: { connectionString: connectionString }, schema: schema });
-
-await bus.start();
 ```
 
-3. Define event and register
+3. Register eventHandler
 
 ```typescript
-const handler = createEventHandler({
-  task_name: 'send_email',
-  eventDef: account_created_event,
-  handler: async (props) => {
-    // do something with the data
-  },
-});
-
-bus.registerHandler(handler);
+bus.registerHandler(
+  createEventHandler({
+    // should be unique for this bus handler
+    task_name: 'send_email',
+    eventDef: account_created_event,
+    handler: async (props) => {
+      // do something with the data
+    },
+  })
+);
 ```
 
-4. Emit the event
+4. Start the pg-tbus
+
+```typescript
+bus.start();
+```
+
+5. Emit the event
 
 ```typescript
 await bus.publish(account_created_event.from({ account_id: '1234' }));
+```
+
+## Tasks
+
+1. Define task(s)
+
+```typescript
+const send_email_task = defineTask({
+  task_name: 'send_email',
+  queue: 'email_svc',
+  schema: Type.Object({ email: Type.String() }),
+});
+```
+
+2. Register task
+
+```typescript
+bus.registerTask(
+  createTaskHandler({
+    taskDef: send_email_task,
+    handler: async (props) => {
+      //send email to props.input.email
+    },
+  })
+);
+```
+
+3. Create task from somewhere else
+
+```ts
+await bus.send(send_email_task.from({ email: 'test@test.com' }));
 ```
 
 For more usage, see `tests/bus.ts`

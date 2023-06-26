@@ -1,12 +1,11 @@
 import tap from 'tap';
-import { declareTask, defineEvent, defineTask } from '../src';
+import { createTaskHandler, defineEvent, defineTask } from '../src';
 import { Type } from '@sinclair/typebox';
 
 tap.test('throws with invalid task data', async ({ throws }) => {
   const task = defineTask({
     task_name: 'task_abc',
     schema: Type.Object({ item: Type.String({ minLength: 5 }) }),
-    handler: async () => [],
   });
 
   throws(() => task.from({ item: '2' }));
@@ -22,7 +21,7 @@ tap.test('throws with invalid event data', async ({ throws }) => {
 });
 
 tap.test('create task from declaredTask', async (t) => {
-  const taskDecl = declareTask({
+  const taskDefinition = defineTask({
     schema: Type.Object({ item: Type.String({ minLength: 5 }) }),
     task_name: 'taskTest',
     config: {
@@ -31,14 +30,14 @@ tap.test('create task from declaredTask', async (t) => {
     },
   });
 
-  const task = taskDecl.from({ item: 'dddddd' }, { expireInSeconds: 10, retryBackoff: false });
+  const task = taskDefinition.from({ item: 'dddddd' }, { expireInSeconds: 10, retryBackoff: false });
   t.same(task.config, { expireInSeconds: 10, retryLimit: 10, retryBackoff: false });
   t.same(task.data, { item: 'dddddd' });
 
-  t.throws(() => taskDecl.from({ item: '2' }));
+  t.throws(() => taskDefinition.from({ item: '2' }));
 
-  const definedTask = defineTask({
-    ...taskDecl,
+  const definedTask = createTaskHandler({
+    taskDef: taskDefinition,
     handler: async (props) => {
       t.equal(props.input.item, 'abcdef');
       return 'works';
