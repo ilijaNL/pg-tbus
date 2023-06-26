@@ -195,7 +195,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
     },
   });
 
-  const maintainceWorker = createMaintainceWorker({ client: pool, retentionInDays: 30, schema: schema });
+  const maintainceWorker = createMaintainceWorker({ client: pool, schema: schema });
 
   const notifyFanout = debounce(() => fanoutWorker.notify(), { ms: 75, maxMs: 300 });
   const notifyWorker = debounce(() => tWorker.notify(), { ms: 75, maxMs: 150 });
@@ -268,7 +268,7 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
    * Returnes a query command which can be used to do manual submitting
    */
   function getPublishCommand(events: Event<string, any>[]): QueryCommand<{}> {
-    return taskPlans.createEvents(events);
+    return taskPlans.createEvents(events.map((e) => ({ d: e.data, e_n: e.event_name, rid: e.retention_in_days })));
   }
 
   /**
