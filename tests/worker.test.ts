@@ -11,7 +11,6 @@ import { createBaseWorker } from '../src/workers/base';
 import { createMaintainceWorker } from '../src/workers/maintaince';
 import { createTaskWorker } from '../src/workers/task';
 import { cleanupSchema } from './helpers';
-import { randomUUID } from 'crypto';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 
@@ -194,11 +193,11 @@ tap.test('task worker', async (t) => {
       .fill({
         state: 0,
         retrycount: 0,
-        id: randomUUID(),
+        id: '0',
         data: {} as any,
         expire_in_seconds: 10,
       })
-      .map((i) => ({ ...i, id: randomUUID() }));
+      .map((r, idx) => ({ ...r, id: `${idx}` }));
     const ee = new EventEmitter();
 
     const mockedPool: PGClient = {
@@ -264,11 +263,11 @@ tap.test('task worker', async (t) => {
       .fill({
         state: 0,
         retrycount: 0,
-        id: randomUUID(),
+        id: '0',
         data: {} as any,
         expire_in_seconds: 10,
       })
-      .map((i) => ({ ...i, id: randomUUID() }));
+      .map((r, idx) => ({ ...r, id: `${idx}` }));
 
     const mockedPool: PGClient = {
       async query(props) {
@@ -552,7 +551,7 @@ tap.test('maintaince worker', async (t) => {
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const r = await sqlPool.query(`SELECT * FROM ${schema}.tasks WHERE id = '${result.id}'::uuid`);
+    const r = await sqlPool.query(`SELECT * FROM ${schema}.tasks WHERE id = ${result.id}`);
     t.equal(r.rowCount, 0);
   });
 });

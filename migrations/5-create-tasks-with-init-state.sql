@@ -1,9 +1,14 @@
+ALTER TABLE {{schema}}.tasks DROP COLUMN "id";
+ALTER TABLE {{schema}}.events DROP COLUMN "id";
+
+ALTER TABLE {{schema}}.events ADD COLUMN id BIGSERIAL PRIMARY KEY;
+ALTER TABLE {{schema}}.tasks ADD COLUMN id BIGSERIAL PRIMARY KEY;
+
 CREATE OR REPLACE FUNCTION {{schema}}.create_bus_tasks(tasks jsonb)
 	RETURNS SETOF {{schema}}.tasks
   AS $$
 BEGIN
   INSERT INTO {{schema}}.tasks (
-    id,
     "queue",
     "data",
     "state",
@@ -16,7 +21,6 @@ BEGIN
     keepUntil
   )
   SELECT
-    gen_random_uuid() as id,
     "q" as "queue",
     "d" as "data",
     COALESCE("s", 0) as "state",

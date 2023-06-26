@@ -61,6 +61,9 @@ export type InsertTask<T = object> = {
 };
 
 export type SelectTask<T = object> = {
+  /**
+   * Bigint
+   */
   id: string;
   retrycount: number;
   state: number;
@@ -101,7 +104,7 @@ export const createMessagePlans = (schema: string) => {
                       ELSE retryCount END
       FROM _tasks
       WHERE t.id = _tasks.id
-      RETURNING t.*, 
+      RETURNING t.id, t.retryCount, t.state, t.data, 
         (EXTRACT(epoch FROM expireIn))::int as expire_in_seconds
     `,
     resolveTasks: (tasks: Array<{ t: string; p: string; s: boolean }>) => sql`
@@ -111,7 +114,7 @@ export const createMessagePlans = (schema: string) => {
         x.s as success,
         x.p as payload
       FROM json_to_recordset(${JSON.stringify(tasks)}) as x(
-        t uuid,
+        t bigint,
         s boolean,
         p jsonb
       )
