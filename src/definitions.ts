@@ -195,7 +195,9 @@ export const defineTask = <T extends TSchema>(props: DefineTaskProps<T>): TaskDe
   };
 
   return {
-    ...props,
+    schema: props.schema,
+    task_name: props.task_name,
+    queue: props.queue,
     validate: validateFn,
     from,
     // specifiy some defaults
