@@ -9,8 +9,6 @@ import stringify from 'safe-stable-stringify';
 
 const connectionString = process.env.PG ?? 'postgres://postgres:postgres@localhost:5432/app';
 
-tap.jobs = 5;
-
 tap.test('bus', async (tap) => {
   tap.jobs = 5;
   const schema = createRandomSchema();
@@ -66,9 +64,9 @@ tap.test('bus', async (tap) => {
 
   tap.test('emit task from declaration', async ({ teardown, equal, same }) => {
     const ee = new EventEmitter();
-    const queue = 'emit_queue';
+    const queue = 'emit_queue_decl';
     const bus = createTBus(queue, { db: sqlPool, schema: schema });
-    const task_name = 'emit_task';
+    const task_name = 'emit_task_declaration';
     const definedTask = defineTask({
       task_name: task_name,
       schema: Type.Object({ works: Type.String() }),
@@ -110,13 +108,13 @@ tap.test('bus', async (tap) => {
 
   tap.test('emit task to different queue', async ({ teardown, equal }) => {
     const ee = new EventEmitter();
-    const bus = createTBus('emit_queue', { db: sqlPool, schema: schema });
+    const bus = createTBus('emit_queue_diff', { db: sqlPool, schema: schema });
     const task_name = 'emit_task';
 
     const taskDef = createTaskHandler({
       taskDef: defineTask({
         task_name: task_name,
-        queue: 'abc',
+        queue: 'abc_diff',
         schema: Type.Object({ works: Type.String() }),
       }),
       handler: async (props) => {
@@ -128,7 +126,7 @@ tap.test('bus', async (tap) => {
 
     const waitProm = once(ee, 'handled');
 
-    const bus2 = createTBus('abc', { db: sqlPool, schema: schema });
+    const bus2 = createTBus('abc_diff', { db: sqlPool, schema: schema });
 
     bus2.registerTask(taskDef);
     await bus2.start();
