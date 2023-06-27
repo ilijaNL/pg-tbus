@@ -2,11 +2,11 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "display": "Default",
   "compilerOptions": {
-    "target": "es2018",
+    "target": "ES2019",
     "module": "commonjs",
     "composite": false,
     "declaration": true,
-    "declarationMap": true,
+    "declarationMap": false,
     "newLine": "lf",
     "pretty": true,
     "noEmit": true,
