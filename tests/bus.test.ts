@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import EventEmitter, { once } from 'events';
 import { Pool } from 'pg';
 import tap from 'tap';
-import { createEventHandler, createTBus, defineEvent, createTaskHandler, defineTask } from '../src';
+import { createEventHandler, createTBus, defineEvent, createTaskHandler, defineTask, createTaskClient } from '../src';
 import { resolveWithinSeconds } from '../src/utils';
 import { cleanupSchema, createRandomSchema } from './helpers';
 import stringify from 'safe-stable-stringify';
@@ -595,6 +595,89 @@ tap.test('bus', async (tap) => {
 
     await p2;
   });
+});
+
+tap.test('taskclient', async (t) => {
+  const bus = createTBus('queueA', {
+    db: { connectionString: connectionString },
+    schema: 'schema',
+  });
+
+  const client = createTaskClient('queueA')
+    .defineTask({
+      name: 'test',
+      schema: Type.Object({ n: Type.Number({ minimum: 2 }) }),
+      config: {
+        retryDelay: 20,
+      },
+    })
+    .defineTask({
+      name: 'abc',
+      schema: Type.Object({ n: Type.String() }),
+      config: {
+        keepInSeconds: 8,
+        retryDelay: 10,
+      },
+    });
+
+  t.throws(() => client.defs.test.from({ n: 1 }));
+
+  t.same(client.defs.test.from({ n: 2 }), {
+    queue: 'queueA',
+    task_name: 'test',
+    data: {
+      n: 2,
+    },
+    config: {
+      retryDelay: 20,
+    },
+  });
+  t.same(client.defs.abc.from({ n: 'abc' }), {
+    queue: 'queueA',
+    task_name: 'abc',
+    data: {
+      n: 'abc',
+    },
+    config: {
+      keepInSeconds: 8,
+      retryDelay: 10,
+    },
+  });
+
+  bus.registerTaskClient(client, {
+    async abc({ input }) {
+      return {};
+    },
+    async test() {
+      return {};
+    },
+  });
+
+  t.equal(bus.getState().tasks.length, 2);
+  t.matchSnapshot(stringify(bus.getState(), null, 2));
+});
+
+tap.test('taskclient throws with different queue', async (t) => {
+  const bus = createTBus('queueA', {
+    db: { connectionString: connectionString },
+    schema: 'schema',
+  });
+
+  const client = createTaskClient('queueB').defineTask({
+    name: 'test',
+    schema: Type.Object({ n: Type.Number({ minimum: 2 }) }),
+    config: {
+      retryDelay: 20,
+    },
+  });
+
+  t.throws(() =>
+    bus.registerTaskClient(client, {
+      async test() {
+        return {};
+      },
+    })
+  );
 });
 
 tap.test('getState', async (t) => {

@@ -176,30 +176,30 @@ export type TaskConfig = {
   singletonKey: string | null;
 };
 
-export const defineTask = <T extends TSchema>(decl: DefineTaskProps<T>): TaskDefinition<T> => {
-  const validateFn = createValidateFn(decl.schema);
+export const defineTask = <T extends TSchema>(props: DefineTaskProps<T>): TaskDefinition<T> => {
+  const validateFn = createValidateFn(props.schema);
 
   const from: TaskDefinition<T>['from'] = function from(input, config) {
     if (!validateFn(input)) {
       throw new Error(
-        `invalid input for task ${decl.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
+        `invalid input for task ${props.task_name}: ${validateFn.errors?.map((e) => e.message).join(' \n')}`
       );
     }
 
     return {
-      queue: decl.queue,
-      task_name: decl.task_name,
+      queue: props.queue,
+      task_name: props.task_name,
       data: input,
-      config: { ...decl.config, ...config },
+      config: { ...props.config, ...config },
     };
   };
 
   return {
-    ...decl,
+    ...props,
     validate: validateFn,
     from,
     // specifiy some defaults
-    config: decl.config ?? {},
+    config: props.config ?? {},
   };
 };
 
@@ -244,5 +244,78 @@ export const createEventHandler = <TName extends string, T extends TSchema>(prop
     def: props.eventDef,
     handler: props.handler,
     config: typeof props.config === 'function' ? props.config : { ...props.config },
+  };
+};
+
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+export type TaskClient<D = {}> = {
+  defineTask<T extends TSchema, N extends string>(props: {
+    name: N;
+    schema: T;
+    /**
+     * Default task configuration. Can be (partially) override when creating the task
+     */
+    config?: Partial<TaskConfig>;
+  }): TaskClient<Simplify<D & { [n in N]: TaskDefinition<T> }>>;
+  defs: Readonly<D>;
+};
+
+/**
+ * A task client that holds multiple task definitions.
+ * Can be exported as a lightweight object and used by other services.
+ *
+ * A task client should be registered by a single service tbus.
+ * @example
+ * const client = createTaskClient('queueA')
+ *   .defineTask({
+ *     name: 'test',
+ *     schema: Type.Object({ n: Type.Number({ minimum: 2 }) }),
+ *     config: {
+ *       retryDelay: 20,
+ *     },
+ *   })
+ *   .defineTask({
+ *     name: 'abc',
+ *     schema: Type.Object({ n: Type.String() }),
+ *     config: {
+ *       keepInSeconds: 8,
+ *       retryDelay: 10,
+ *     },
+ *   });
+ *
+ * bus.registerTaskClient(client, {
+ *  async abc({ input }) {
+ *     return {};
+ *   },
+ *   async test() {
+ *     return {};
+ *   },
+ * });
+ */
+export const createTaskClient = <D>(queue: string): TaskClient<D> => {
+  const definitions: D = {} as any;
+
+  return {
+    defineTask<T extends TSchema, N extends string>(props: {
+      name: N;
+      schema: T;
+      /**
+       * Default task configuration. Can be (partially) override when creating the task
+       */
+      config?: Partial<TaskConfig>;
+    }) {
+      (definitions as any)[props.name] = defineTask({
+        schema: props.schema,
+        task_name: props.name,
+        config: props.config,
+        queue: queue,
+      });
+
+      return this as TaskClient<D & { [n in N]: TaskDefinition<T> }>;
+    },
+    get defs() {
+      return Object.freeze(definitions);
+    },
   };
 };
