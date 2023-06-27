@@ -1,5 +1,11 @@
 # pg-tbus
 
+## 1.0.0
+
+### Major Changes
+
+- dc58920: Performance, TaskClient and Consistency API
+
 ## 0.1.9
 
 ### Patch Changes
