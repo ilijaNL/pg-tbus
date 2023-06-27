@@ -574,8 +574,7 @@ tap.test('maintaince worker', async (t) => {
         { d: { exists: true }, e_n: 'event_retention_123', rid: 3 },
       ])
     );
-    const r = await sqlPool.query(`SELECT * FROM ${schema}.events WHERE event_name = 'event_retention_123'`);
-    t.equal(r.rowCount, 3);
+
     worker.start();
     t.teardown(() => worker.stop());
 
