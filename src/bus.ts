@@ -1,5 +1,17 @@
-import { TSchema } from '@sinclair/typebox';
-import { EventHandler, Event, Task, TaskHandler, TaskTrigger, TaskConfig, EventSpec, Handler } from './definitions';
+import { Static, TSchema } from '@sinclair/typebox';
+import {
+  EventHandler,
+  Event,
+  Task,
+  TaskHandler,
+  TaskTrigger,
+  TaskConfig,
+  EventSpec,
+  Handler,
+  TaskClient,
+  TaskDefinition,
+  createTaskHandler,
+} from './definitions';
 import { query, PGClient, createSql, QueryCommand } from './sql';
 import { Pool, PoolConfig } from 'pg';
 import { migrate } from './migrations';
@@ -99,9 +111,23 @@ export type BusState = {
   tasks: Array<TaskState>;
 };
 
+export type TaskClientImpl<R extends Record<string, TaskDefinition<TSchema>>> = {
+  [K in keyof R]: Handler<Static<R[K]['schema']>>;
+};
+
 export type Bus = {
-  registerTask: (...definitions: TaskHandler<any>[]) => void;
+  /**
+   * Register one or more task handlers.
+   */
+  registerTask: (...handlers: TaskHandler<any>[]) => void;
+  /**
+   * Register one or more event handlers.
+   */
   registerHandler: (...handlers: EventHandler<string, any>[]) => void;
+  registerTaskClient: <R extends Record<string, TaskDefinition<any>>>(
+    client: TaskClient<R>,
+    impl: TaskClientImpl<R>
+  ) => void;
   start: () => Promise<void>;
   getPublishCommand: (events: Event<string, any>[]) => QueryCommand<{}>;
   publish: (events: Event<string, any> | Event<string, any>[], client?: PGClient) => Promise<void>;
@@ -304,6 +330,14 @@ export const createTBus = (serviceName: string, configuration: TBusConfiguration
   return {
     registerTask,
     registerHandler,
+    registerTaskClient<R extends Record<string, TaskDefinition<TSchema>>>(
+      client: TaskClient<R>,
+      impl: TaskClientImpl<R>
+    ) {
+      (Object.keys(client.defs) as Array<keyof R>).forEach((key) => {
+        registerTask(createTaskHandler({ taskDef: client.defs[key], handler: impl[key] }));
+      });
+    },
     start,
     getPublishCommand,
     getState,

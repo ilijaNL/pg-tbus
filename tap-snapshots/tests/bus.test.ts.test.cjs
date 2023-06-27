@@ -104,3 +104,48 @@ exports[`tests/bus.test.ts TAP getState > must match snapshot 1`] = `
   ]
 }
 `
+
+exports[`tests/bus.test.ts TAP taskclient > must match snapshot 1`] = `
+{
+  "events": [],
+  "queue": "queueA",
+  "tasks": [
+    {
+      "config": {
+        "retryDelay": 20
+      },
+      "schema": {
+        "properties": {
+          "n": {
+            "minimum": 2,
+            "type": "number"
+          }
+        },
+        "required": [
+          "n"
+        ],
+        "type": "object"
+      },
+      "task_name": "test"
+    },
+    {
+      "config": {
+        "keepInSeconds": 8,
+        "retryDelay": 10
+      },
+      "schema": {
+        "properties": {
+          "n": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "n"
+        ],
+        "type": "object"
+      },
+      "task_name": "abc"
+    }
+  ]
+}
+`
